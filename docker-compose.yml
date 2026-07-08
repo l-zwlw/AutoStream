@@ -1,0 +1,9 @@
+services:
+  autostream:
+    build: .
+    container_name: autostream
+    ports:
+      - "7001:7001"
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped

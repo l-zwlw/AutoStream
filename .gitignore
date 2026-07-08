@@ -4,18 +4,23 @@ node_modules/
 # macOS
 .DS_Store
 
-# VS Code
-.vscode/
-
-# Your personal workspace
-lukas.code-workspace
-
-# Logs
-npm-debug.log*
-
-# Environment variables
+# Environment
 .env
 .env.*
 
-# Optional future build output
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Build output
 dist/
+build/
+
+# Editor / personal files
+.vscode/
+*.code-workspace
+
+# Docker / local runtime
+data/*.local.json

@@ -1,0 +1,12 @@
+[
+  {
+    "id": "com.stremio.torrentio.addon",
+    "name": "Torrentio",
+    "version": "0.0.15",
+    "description": "Provides torrent streams from scraped torrent providers. Currently supports YTS(+), EZTV(+), RARBG(+), 1337x(+), ThePirateBay(+), KickassTorrents(+), TorrentGalaxy(+), MagnetDL(+), HorribleSubs(+), NyaaSi(+), TokyoTosho(+), AniDex(+), nekoBT(+), Rutor(+), Rutracker(+), Comando(+), BluDV(+), MicoLeaoDublado(+), Torrent9(+), ilCorSaRoNeRo(+), MejorTorrent(+), Wolfmax4k(+), Cinecalidad(+), BestTorrents(+). To configure providers, RealDebrid/Premiumize/AllDebrid/DebridLink/EasyDebrid/Offcloud/TorBox/Put.io support and other settings visit https://torrentio.strem.fun",
+    "logo": "https://torrentio.strem.fun/images/logo_v1.png",
+    "url": "https://torrentio.strem.fun",
+    "manifestUrl": "https://torrentio.strem.fun/manifest.json",
+    "enabled": true
+  }
+]

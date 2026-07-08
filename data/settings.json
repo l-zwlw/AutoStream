@@ -1,0 +1,8 @@
+{
+  "profile": "balanced",
+  "debrid": {
+    "enabled": false,
+    "provider": "",
+    "apiKey": ""
+  }
+}

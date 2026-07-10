@@ -2,31 +2,69 @@
 
 **Just Press Play.**
 
-AutoStream is a self-hosted Stremio addon manager that collects streams from your configured addons and automatically returns the best stream for your selected profile.
+AutoStream is a self-hosted Stremio addon manager that collects streams from configured addons and automatically returns one stream for the selected playback profile.
 
 ## Features
 
-- Beautiful self-hosted web dashboard
-- Add Stremio addons by URL
-- Reads addon metadata automatically
-- Returns one selected stream to Stremio
-- Stream profiles:
-  - Balanced
-  - Fastest
-  - Mobile
-  - Home Theater
-  - Debrid
+- Self-hosted web dashboard
+- Add Stremio addons by manifest URL
+- Automatic addon metadata and logos
+- One selected stream in Stremio
+- Balanced, Fastest, Mobile, Home Theater, and Debrid profiles
 - Docker support
 
-## Docker Compose
+## Stable Docker image
 
-```yaml
-services:
-  autostream:
-    image: ghcr.io/l-zwlw/autostream:latest
-    container_name: autostream
-    ports:
-      - "7001:7001"
-    volumes:
-      - ./data:/app/data
-    restart: unless-stopped
+```text
+ghcr.io/l-zwlw/autostream:latest
+```
+
+## Nightly fallback test
+
+The nightly image contains the experimental qBittorrent startup-fallback engine. It tests ranked torrent candidates, selects only the requested movie or episode inside packs, and cleans up temporary downloads after each test.
+
+Clone the nightly branch:
+
+```bash
+git clone --branch agent/nightly-fallback https://github.com/l-zwlw/AutoStream.git
+cd AutoStream
+```
+
+Start the nightly stack:
+
+```bash
+docker compose -f docker-compose.nightly.yml pull
+docker compose -f docker-compose.nightly.yml up -d
+```
+
+Open AutoStream:
+
+```text
+http://YOUR-SERVER-IP:7001
+```
+
+The qBittorrent WebUI is bound to localhost port 7002 and is not exposed to the local network. AutoStream communicates with it through Docker's internal network.
+
+View status and logs:
+
+```bash
+docker compose -f docker-compose.nightly.yml ps
+docker compose -f docker-compose.nightly.yml logs -f autostream
+```
+
+Update to the newest nightly:
+
+```bash
+docker compose -f docker-compose.nightly.yml pull
+docker compose -f docker-compose.nightly.yml up -d
+```
+
+Nightly builds are intended for testing and may change before they are merged into the stable image.
+
+## Stremio installation
+
+Open AutoStream's dashboard, go to **Settings**, and copy the manifest URL shown there.
+
+## Network warning
+
+AutoStream is designed for a trusted local network. It does not currently include user authentication. Do not expose it directly to the public internet without securing it yourself.

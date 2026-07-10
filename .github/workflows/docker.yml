@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - agent/nightly-fallback
   workflow_dispatch:
 
 permissions:
@@ -25,10 +26,20 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Set Docker image tag
+        id: image
+        shell: bash
+        run: |
+          if [[ "${GITHUB_REF}" == "refs/heads/main" ]]; then
+            echo "tag=latest" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=nightly" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Build and push Docker image
         uses: docker/build-push-action@v6
         with:
           context: .
           push: true
           tags: |
-            ghcr.io/l-zwlw/autostream:latest
+            ghcr.io/l-zwlw/autostream:${{ steps.image.outputs.tag }}

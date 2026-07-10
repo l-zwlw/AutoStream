@@ -1,6 +1,6 @@
 services:
   autostream:
-    build: .
+    image: ghcr.io/l-zwlw/autostream:nightly
     container_name: autostream
     ports:
       - "7001:7001"

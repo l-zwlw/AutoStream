@@ -24,3 +24,5 @@ build/
 
 # Docker / local runtime
 data/*.local.json
+/downloads/
+/qbittorrent/

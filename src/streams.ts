@@ -1,6 +1,10 @@
 import { getAddonStreams } from "./providers/addons";
-import { pickBestStream } from "./services/sorter";
+import { rankStreams } from "./services/sorter";
 import { getSettings } from "./services/settings";
+import {
+  getQBittorrentStatus,
+  selectFirstPlayableTorrent
+} from "./services/qbittorrent";
 
 function getProfileName(profile: string) {
   switch (profile) {
@@ -33,16 +37,26 @@ export async function getStreams(type: string, id: string) {
 
   const settings = getSettings();
 
-  const selected = pickBestStream(
-    streams,
-    settings.profile || "balanced"
-  );
+  const ranked = rankStreams(streams, settings);
 
-  if (!selected.length) {
+  if (!ranked.length) {
     return [];
   }
 
-  const stream = selected[0];
+  let stream = ranked[0];
+  const qbittorrent = await getQBittorrentStatus();
+
+  if (qbittorrent.online && settings.profile !== "debrid") {
+    const fallback = await selectFirstPlayableTorrent(ranked);
+
+    if (fallback.stream) {
+      stream = fallback.stream;
+    } else {
+      console.warn(
+        "No fallback candidate passed the startup test; using the highest-ranked stream"
+      );
+    }
+  }
 
   return [
     {

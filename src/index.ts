@@ -3,8 +3,16 @@ import cors from "cors";
 
 import { manifest } from "./manifest";
 import { getStreams } from "./streams";
-import { getAddons, saveAddons, createAddon } from "./services/addons";
-import { getSettings, saveSettings } from "./services/settings";
+import {
+  getAddons,
+  saveAddons,
+  createAddon
+} from "./services/addons";
+import {
+  getSettings,
+  saveSettings
+} from "./services/settings";
+import { getQBittorrentStatus } from "./services/qbittorrent";
 
 const app = express();
 
@@ -17,23 +25,37 @@ app.get("/manifest.json", (req, res) => {
 });
 
 app.get("/stream/:type/:id.json", async (req, res) => {
-  const streams = await getStreams(req.params.type, req.params.id);
+  try {
+    const streams = await getStreams(
+      req.params.type,
+      req.params.id
+    );
 
-  res.json({
-    streams
-  });
+    res.json({ streams });
+  } catch (error) {
+    console.error("Stream error:", error);
+    res.status(500).json({ streams: [] });
+  }
 });
 
-app.get("/api/status", (req, res) => {
+app.get("/api/status", async (req, res) => {
   const settings = getSettings();
+  const qbittorrent = await getQBittorrentStatus();
 
   res.json({
     status: "online",
     version: "1.0.0",
     addons: getAddons().length,
     profile: settings.profile || "balanced",
-    debridEnabled: settings.debrid?.enabled || false
+    debridEnabled: settings.debrid?.enabled || false,
+    fallbackEngine: qbittorrent
   });
+});
+
+app.get("/api/qbittorrent/status", async (req, res) => {
+  const status = await getQBittorrentStatus();
+
+  res.status(status.online ? 200 : 503).json(status);
 });
 
 app.get("/api/settings", (req, res) => {
@@ -87,7 +109,6 @@ app.get("/api/addons", (req, res) => {
 app.post("/api/addons", async (req, res) => {
   try {
     const addons = getAddons();
-
     const addon = await createAddon(req.body.url);
 
     const alreadyExists = addons.some(
@@ -104,7 +125,6 @@ app.post("/api/addons", async (req, res) => {
     }
 
     addons.push(addon);
-
     saveAddons(addons);
 
     res.json({
@@ -121,7 +141,6 @@ app.post("/api/addons", async (req, res) => {
 
 app.patch("/api/addons/:index", (req, res) => {
   const addons = getAddons();
-
   const index = Number(req.params.index);
 
   if (!addons[index]) {
@@ -146,7 +165,6 @@ app.patch("/api/addons/:index", (req, res) => {
 
 app.delete("/api/addons/:index", (req, res) => {
   const addons = getAddons();
-
   const index = Number(req.params.index);
 
   if (!addons[index]) {
@@ -157,16 +175,15 @@ app.delete("/api/addons/:index", (req, res) => {
   }
 
   addons.splice(index, 1);
-
   saveAddons(addons);
 
-  res.json({
-    success: true
-  });
+  res.json({ success: true });
 });
 
-const PORT = 7001;
+const PORT = Number(process.env.PORT || 7001);
 
-app.listen(PORT, () => {
-  console.log(`🚀 AutoStream v1.0.0 running on http://localhost:${PORT}`);
+app.listen(PORT, "0.0.0.0", () => {
+  console.log(
+    `🚀 AutoStream v1.0.0 running on http://localhost:${PORT}`
+  );
 });

@@ -45,17 +45,28 @@ export interface FallbackSelection {
   attempts: FallbackAttempt[];
 }
 
-const candidateTimeoutMs = Number(
-  process.env.FALLBACK_CANDIDATE_TIMEOUT_MS || 15000
-);
+export type FallbackOptions = {
+  candidateTimeoutSeconds?: number;
+  maximumCandidates?: number;
+  minimumDownloadedKb?: number;
+};
 
-const maximumCandidates = Number(
-  process.env.FALLBACK_MAX_CANDIDATES || 5
-);
-
-const minimumDownloadedBytes = Number(
-  process.env.FALLBACK_MIN_DOWNLOADED_BYTES || 262144
-);
+function normalizeFallbackOptions(options: FallbackOptions = {}) {
+  return {
+    candidateTimeoutMs: Math.min(
+      Math.max(Number(options.candidateTimeoutSeconds || 15), 5),
+      60
+    ) * 1000,
+    maximumCandidates: Math.min(
+      Math.max(Number(options.maximumCandidates || 5), 1),
+      10
+    ),
+    minimumDownloadedBytes: Math.min(
+      Math.max(Number(options.minimumDownloadedKb || 256), 64),
+      4096
+    ) * 1024
+  };
+}
 
 function delay(milliseconds: number) {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
@@ -161,12 +172,23 @@ async function configureSelectedFile(
   requestedFileIndex?: number
 ) {
   const files = await getTorrentFiles(infoHash);
+  const requestedFile =
+    typeof requestedFileIndex === "number"
+      ? files.find(
+          (file) =>
+            file.index === requestedFileIndex &&
+            isVideoFile(file.name)
+        )
+      : undefined;
+
+  if (typeof requestedFileIndex === "number" && !requestedFile) {
+    throw new Error(
+      `Requested video file index ${requestedFileIndex} was not found`
+    );
+  }
+
   const selectedFile =
-    files.find(
-      (file) =>
-        file.index === requestedFileIndex &&
-        isVideoFile(file.name)
-    ) ||
+    requestedFile ||
     [...files]
       .filter((file) => isVideoFile(file.name))
       .sort((a, b) => b.size - a.size)[0];
@@ -202,7 +224,10 @@ export async function deleteTorrent(infoHash: string) {
   });
 }
 
-async function testCandidate(candidate: TorrentCandidate) {
+async function testCandidate(
+  candidate: TorrentCandidate,
+  options: ReturnType<typeof normalizeFallbackOptions>
+) {
   const infoHash = candidate.infoHash!.toLowerCase();
   const existing = await getTorrent(infoHash);
   const createdByAutoStream = !existing;
@@ -215,7 +240,7 @@ async function testCandidate(candidate: TorrentCandidate) {
   let selectedFileIndex: number | null = null;
 
   try {
-    while (Date.now() - startedAt < candidateTimeoutMs) {
+    while (Date.now() - startedAt < options.candidateTimeoutMs) {
       const torrent = await getTorrent(infoHash);
 
       if (!torrent) {
@@ -251,7 +276,8 @@ async function testCandidate(candidate: TorrentCandidate) {
             );
       const hasActivity =
         Boolean(selectedFile && selectedFile.progress > 0) &&
-        (torrent.downloaded >= minimumDownloadedBytes || torrent.dlspeed > 0);
+        (torrent.downloaded >= options.minimumDownloadedBytes ||
+          torrent.dlspeed > 0);
       const hasPeers =
         torrent.num_seeds > 0 ||
         torrent.num_leechs > 0 ||
@@ -269,7 +295,7 @@ async function testCandidate(candidate: TorrentCandidate) {
 
     return {
       success: false,
-      reason: `no usable data within ${candidateTimeoutMs / 1000} seconds`
+      reason: `no usable data within ${options.candidateTimeoutMs / 1000} seconds`
     };
   } finally {
     if (createdByAutoStream) {
@@ -279,21 +305,23 @@ async function testCandidate(candidate: TorrentCandidate) {
 }
 
 export async function selectFirstPlayableTorrent(
-  rankedStreams: TorrentCandidate[]
+  rankedStreams: TorrentCandidate[],
+  fallbackOptions: FallbackOptions = {}
 ): Promise<FallbackSelection> {
+  const options = normalizeFallbackOptions(fallbackOptions);
   const attempts: FallbackAttempt[] = [];
   const candidates = rankedStreams
     .filter((stream) =>
       typeof stream.infoHash === "string" &&
       /^[a-fA-F0-9]{40}$/.test(stream.infoHash)
     )
-    .slice(0, maximumCandidates);
+    .slice(0, options.maximumCandidates);
 
   for (const candidate of candidates) {
     const infoHash = candidate.infoHash!.toLowerCase();
 
     try {
-      const result = await testCandidate(candidate);
+      const result = await testCandidate(candidate, options);
 
       attempts.push({
         infoHash,

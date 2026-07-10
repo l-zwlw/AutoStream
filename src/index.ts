@@ -13,6 +13,7 @@ import {
   saveSettings
 } from "./services/settings";
 import { getQBittorrentStatus } from "./services/qbittorrent";
+import { APP_VERSION, RELEASE_CHANNEL } from "./version";
 
 const app = express();
 
@@ -44,10 +45,14 @@ app.get("/api/status", async (req, res) => {
 
   res.json({
     status: "online",
-    version: "1.0.0",
+    version: APP_VERSION,
+    releaseChannel: RELEASE_CHANNEL,
     addons: getAddons().length,
     profile: settings.profile || "balanced",
     debridEnabled: settings.debrid?.enabled || false,
+    fallbackEnabled:
+      settings.fallback?.enabled !== false &&
+      settings.profile !== "debrid",
     fallbackEngine: qbittorrent
   });
 });
@@ -78,6 +83,11 @@ app.patch("/api/settings", (req, res) => {
     ...(req.body.debrid || {})
   };
 
+  const nextFallback = {
+    ...currentSettings.fallback,
+    ...(req.body.fallback || {})
+  };
+
   if (req.body.debrid?.apiKey === "********") {
     nextDebrid.apiKey = currentSettings.debrid?.apiKey || "";
   }
@@ -85,18 +95,21 @@ app.patch("/api/settings", (req, res) => {
   const newSettings = {
     ...currentSettings,
     ...req.body,
+    fallback: nextFallback,
     debrid: nextDebrid
   };
 
   saveSettings(newSettings);
 
+  const savedSettings = getSettings();
+
   res.json({
     success: true,
     settings: {
-      ...newSettings,
+      ...savedSettings,
       debrid: {
-        ...newSettings.debrid,
-        apiKey: newSettings.debrid?.apiKey ? "********" : ""
+        ...savedSettings.debrid,
+        apiKey: savedSettings.debrid?.apiKey ? "********" : ""
       }
     }
   });
@@ -184,6 +197,6 @@ const PORT = Number(process.env.PORT || 7001);
 
 app.listen(PORT, "0.0.0.0", () => {
   console.log(
-    `🚀 AutoStream v1.0.0 running on http://localhost:${PORT}`
+    `🚀 AutoStream v${APP_VERSION} running on http://localhost:${PORT}`
   );
 });

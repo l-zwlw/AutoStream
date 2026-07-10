@@ -46,8 +46,15 @@ export async function getStreams(type: string, id: string) {
   let stream = ranked[0];
   const qbittorrent = await getQBittorrentStatus();
 
-  if (qbittorrent.online && settings.profile !== "debrid") {
-    const fallback = await selectFirstPlayableTorrent(ranked);
+  if (
+    qbittorrent.online &&
+    settings.profile !== "debrid" &&
+    settings.fallback?.enabled !== false
+  ) {
+    const fallback = await selectFirstPlayableTorrent(
+      ranked,
+      settings.fallback
+    );
 
     if (fallback.stream) {
       stream = fallback.stream;

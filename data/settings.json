@@ -1,5 +1,11 @@
 {
   "profile": "balanced",
+  "fallback": {
+    "enabled": true,
+    "candidateTimeoutSeconds": 15,
+    "maximumCandidates": 5,
+    "minimumDownloadedKb": 256
+  },
   "debrid": {
     "enabled": false,
     "provider": "",

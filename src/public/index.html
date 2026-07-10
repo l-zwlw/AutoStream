@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>AutoStream v1.0.0</title>
+  <title>AutoStream Nightly</title>
   <link rel="icon" type="image/png" href="/favicon.png" />
   <link rel="apple-touch-icon" href="/icon.png" />
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -176,7 +176,7 @@
     @keyframes fade { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 
     .grid { display: grid; gap: 18px; }
-    .grid-3 { grid-template-columns: repeat(3, minmax(0,1fr)); }
+    .grid-3 { grid-template-columns: repeat(4, minmax(0,1fr)); }
     .grid-2 { grid-template-columns: 1fr 1fr; }
 
     .card {
@@ -290,6 +290,8 @@
     .hint { color: var(--muted-2); font-size: 12px; line-height: 1.45; }
     .debrid-panel { display: none; margin-top: 18px; padding-top: 18px; border-top: 1px solid var(--border); }
     .debrid-panel.visible { display: block; }
+    .check-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 18px; }
+    .check-row input { width: 20px; height: 20px; accent-color: var(--blue); }
 
     .empty { padding: 58px 24px; text-align: center; color: var(--muted); }
     .empty h3 { color: var(--text); font-size: 18px; margin-bottom: 8px; }
@@ -334,7 +336,7 @@
         <div id="logoFallback" class="brand-logo fallback" style="display:none; place-items:center;">▶</div>
         <div>
           <div class="brand-title">AutoStream</div>
-          <div class="brand-sub">v1.0.0 · Stable</div>
+          <div class="brand-sub" id="brandVersion">Loading version...</div>
         </div>
       </div>
 
@@ -408,6 +410,11 @@
               <div class="stat-value" id="profileValue">Balanced</div>
               <div class="stat-note">Used to choose the best stream.</div>
             </div>
+            <div class="card stat">
+              <div class="stat-label">Fallback engine</div>
+              <div class="stat-value" id="fallbackValue">Checking</div>
+              <div class="stat-note" id="fallbackNote">Connecting to qBittorrent.</div>
+            </div>
           </div>
         </div>
 
@@ -457,7 +464,7 @@
 
               <div class="debrid-panel" id="debridPanel">
                 <h2>Debrid</h2>
-                <p class="hint" style="margin-top:8px;">Debrid mode is saved here for v1.0. Resolver support can be added later.</p>
+                <p class="hint" style="margin-top:8px;">Use this profile with addons that already return cached debrid streams. AutoStream does not resolve debrid links itself yet.</p>
 
                 <div class="field">
                   <label for="debridProvider">Provider</label>
@@ -481,6 +488,34 @@
             </div>
 
             <div class="card card-pad">
+              <h2>Startup fallback</h2>
+              <p class="hint" style="margin-top:8px;">Test torrent candidates with qBittorrent before returning one stream to Stremio.</p>
+
+              <div class="check-row">
+                <div>
+                  <label for="fallbackEnabled">Automatic startup fallback</label>
+                  <p class="hint" style="margin-top:4px;">Disabled automatically for the Debrid profile.</p>
+                </div>
+                <input id="fallbackEnabled" type="checkbox" />
+              </div>
+
+              <div class="field">
+                <label for="fallbackTimeout">Seconds per candidate</label>
+                <input class="input" id="fallbackTimeout" type="number" min="5" max="60" step="1" />
+              </div>
+
+              <div class="field">
+                <label for="fallbackCandidates">Maximum candidates</label>
+                <input class="input" id="fallbackCandidates" type="number" min="1" max="10" step="1" />
+              </div>
+
+              <div class="field">
+                <label for="fallbackMinimumKb">Minimum verified download (KB)</label>
+                <input class="input" id="fallbackMinimumKb" type="number" min="64" max="4096" step="64" />
+              </div>
+            </div>
+
+            <div class="card card-pad">
               <h2>Install in Stremio</h2>
               <p class="hint" style="margin-top:8px;">Copy this personal install URL and paste it into Stremio.</p>
               <div class="install-box" style="max-width:none;">
@@ -489,7 +524,7 @@
               </div>
               <div class="field">
                 <label>Version</label>
-                <input class="input" value="1.0.0 Stable" disabled />
+                <input class="input" id="versionValue" value="Loading..." disabled />
               </div>
             </div>
           </div>
@@ -523,7 +558,11 @@
     };
 
     let addons = [];
-    let settings = { profile: 'balanced', debrid: { enabled: false, provider: '', apiKey: '' } };
+    let settings = {
+      profile: 'balanced',
+      fallback: { enabled: true, candidateTimeoutSeconds: 15, maximumCandidates: 5, minimumDownloadedKb: 256 },
+      debrid: { enabled: false, provider: '', apiKey: '' }
+    };
 
     const profileLabels = {
       balanced: 'Balanced',
@@ -582,6 +621,17 @@
         document.getElementById('addonCount').textContent = data.addons ?? addons.length;
         document.getElementById('profileValue').textContent = profileLabels[data.profile] || data.profile || 'Balanced';
         document.getElementById('sidebarStatus').textContent = data.status === 'online' ? 'Server online' : 'Server offline';
+        const versionLabel = `v${data.version || 'unknown'} · ${data.releaseChannel || 'Unknown'}`;
+        document.getElementById('brandVersion').textContent = versionLabel;
+        document.getElementById('versionValue').value = versionLabel;
+        document.title = `AutoStream v${data.version || ''}`;
+        const fallbackOnline = data.fallbackEnabled && data.fallbackEngine?.online;
+        document.getElementById('fallbackValue').textContent = !data.fallbackEnabled ? 'Disabled' : fallbackOnline ? 'Ready' : 'Offline';
+        document.getElementById('fallbackNote').textContent = !data.fallbackEnabled
+          ? 'Startup fallback is turned off.'
+          : fallbackOnline
+            ? `qBittorrent ${data.fallbackEngine.version || ''} connected.`
+            : data.fallbackEngine?.error || 'qBittorrent is unavailable.';
       } catch {
         document.getElementById('statusValue').textContent = 'Offline';
         document.getElementById('sidebarStatus').textContent = 'Server offline';
@@ -594,6 +644,10 @@
       document.getElementById('profileSelect').value = settings.profile || 'balanced';
       document.getElementById('debridProvider').value = settings.debrid?.provider || '';
       document.getElementById('debridApiKey').value = settings.debrid?.apiKey || '';
+      document.getElementById('fallbackEnabled').checked = settings.fallback?.enabled !== false;
+      document.getElementById('fallbackTimeout').value = settings.fallback?.candidateTimeoutSeconds || 15;
+      document.getElementById('fallbackCandidates').value = settings.fallback?.maximumCandidates || 5;
+      document.getElementById('fallbackMinimumKb').value = settings.fallback?.minimumDownloadedKb || 256;
       updateDebridPanel();
     }
 
@@ -601,6 +655,12 @@
       const profile = document.getElementById('profileSelect').value;
       const body = {
         profile,
+        fallback: {
+          enabled: document.getElementById('fallbackEnabled').checked,
+          candidateTimeoutSeconds: Number(document.getElementById('fallbackTimeout').value),
+          maximumCandidates: Number(document.getElementById('fallbackCandidates').value),
+          minimumDownloadedKb: Number(document.getElementById('fallbackMinimumKb').value)
+        },
         debrid: {
           enabled: profile === 'debrid',
           provider: document.getElementById('debridProvider').value,

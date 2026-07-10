@@ -8,9 +8,6 @@ services:
       PORT: "7001"
       QBITTORRENT_URL: "http://qbittorrent:7002"
       DOWNLOADS_PATH: "/downloads"
-      FALLBACK_CANDIDATE_TIMEOUT_MS: "15000"
-      FALLBACK_MAX_CANDIDATES: "5"
-      FALLBACK_MIN_DOWNLOADED_BYTES: "262144"
     volumes:
       - ./data:/app/data
       - ./downloads:/downloads

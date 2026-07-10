@@ -1,70 +1,148 @@
-# AutoStream
+<p align="center">
+  <img src="src/public/logo.png" alt="AutoStream — Just Press Play" width="520" />
+</p>
 
-**Just Press Play.**
+<h1 align="center">AutoStream</h1>
 
-AutoStream is a self-hosted Stremio addon manager that collects streams from configured addons and automatically returns one stream for the selected playback profile.
+<p align="center">
+  One Stremio result, selected automatically from all your configured addons.
+</p>
 
-## Features
+<p align="center">
+  <img alt="Version" src="https://img.shields.io/badge/nightly-1.1.0-7857ff" />
+  <img alt="Docker" src="https://img.shields.io/badge/Docker-GHCR-2496ed" />
+  <img alt="License" src="https://img.shields.io/badge/license-MIT-4dff9f" />
+</p>
 
-- Self-hosted web dashboard
-- Add Stremio addons by manifest URL
-- Automatic addon metadata and logos
-- One selected stream in Stremio
+> [!IMPORTANT]
+> AutoStream 1.1 is currently a nightly preview. The startup-fallback engine is ready for real-world testing but has not yet been promoted to `latest`.
+
+## What AutoStream does
+
+AutoStream queries every enabled Stremio addon, combines their stream results, applies the selected playback profile, and returns exactly one result to Stremio.
+
+The 1.1 nightly adds an optional qBittorrent startup check. Before returning a torrent, AutoStream verifies that the exact requested movie or episode receives real download data. Dead candidates are removed and the next ranked candidate is tried automatically.
+
+## Highlights
+
+- One clean result in Stremio
+- Any standard Stremio stream addon can be added by manifest URL
+- Addon names, descriptions, versions, and logos are detected automatically
 - Balanced, Fastest, Mobile, Home Theater, and Debrid profiles
-- Docker support
+- qBittorrent startup-fallback with configurable timeouts
+- Movie collections and season packs restricted to the requested `fileIdx`
+- Temporary fallback torrents and files removed automatically
+- Responsive self-hosted dashboard
+- Multi-architecture Docker images for AMD64 and ARM64
+- Docker, ZimaOS, and GHCR support
 
-## Stable Docker image
+## How startup fallback works
 
 ```text
-ghcr.io/l-zwlw/autostream:latest
+Stremio request
+      ↓
+Query enabled addons
+      ↓
+Rank all stream candidates
+      ↓
+qBittorrent tests candidate 1
+      ├─ exact file receives data → return it
+      └─ timeout or failure → clean up and try candidate 2
 ```
 
-## Nightly fallback test
+AutoStream currently performs fallback before playback begins. Seamless switching during an already playing video is not part of this nightly.
 
-The nightly image contains the experimental qBittorrent startup-fallback engine. It tests ranked torrent candidates, selects only the requested movie or episode inside packs, and cleans up temporary downloads after each test.
+## ZimaOS nightly installation
 
-Clone the nightly branch:
+Create a custom app and paste the contents of [`docker-compose.zima.yml`](docker-compose.zima.yml). The services are deliberately ordered with AutoStream first, qBittorrent second, and the one-time Alpine initializer last.
+
+After the stack starts, open:
+
+```text
+http://YOUR-ZIMAOS-IP:7001
+```
+
+Then open **Settings**, configure the playback profile and fallback preferences, and copy the generated Stremio manifest URL.
+
+### Update the nightly
+
+Pull and recreate the stack from the ZimaOS interface, or run:
+
+```bash
+docker compose -f docker-compose.zima.yml pull
+docker compose -f docker-compose.zima.yml up -d
+```
+
+## Docker Compose from Git
 
 ```bash
 git clone --branch agent/nightly-fallback https://github.com/l-zwlw/AutoStream.git
 cd AutoStream
-```
-
-Start the nightly stack:
-
-```bash
 docker compose -f docker-compose.nightly.yml pull
 docker compose -f docker-compose.nightly.yml up -d
 ```
 
-Open AutoStream:
+## Ports and storage
+
+| Purpose | Port/path | Notes |
+| --- | --- | --- |
+| AutoStream dashboard and manifest | `7001` | Available on the local network |
+| qBittorrent WebUI | `127.0.0.1:7002` | Host-local only |
+| BitTorrent traffic | `6882/tcp` and `6882/udp` | Avoids the common host port 6881 |
+| Persistent settings | `./data` | Addons and AutoStream settings |
+| Temporary fallback data | `./downloads` | Cleaned after each candidate test |
+| qBittorrent configuration | `./qbittorrent` | Persistent internal engine settings |
+
+## Playback profiles
+
+| Profile | Intended behavior |
+| --- | --- |
+| Balanced | Good quality, reasonable size, and healthy availability |
+| Fastest | Smaller files and strong availability |
+| Mobile | Bandwidth-friendly 720p/1080p results |
+| Home Theater | 4K, HDR, REMUX, and premium audio bonuses |
+| Debrid | Highest-quality cached/debrid results returned by configured addons |
+
+The Debrid profile scores streams already provided by debrid-enabled addons. AutoStream does not currently resolve debrid links itself.
+
+## Fallback settings
+
+- **Automatic startup fallback:** enable or disable qBittorrent candidate testing
+- **Seconds per candidate:** 5–60 seconds
+- **Maximum candidates:** 1–10 candidates
+- **Minimum verified download:** 64–4096 KB
+
+For multi-file torrents, every unrelated file is assigned priority `0`; only the requested `fileIdx` receives maximum priority.
+
+## Status API
 
 ```text
-http://YOUR-SERVER-IP:7001
+GET /api/status
+GET /api/qbittorrent/status
 ```
 
-The qBittorrent WebUI is bound to localhost port 7002 and is not exposed to the local network. AutoStream communicates with it through Docker's internal network.
+The dashboard uses these endpoints to display the real release version and fallback-engine state.
 
-View status and logs:
+## Security
+
+AutoStream is intended for a trusted local network and does not currently include user authentication. Do not expose port 7001 directly to the public internet without adding your own access controls.
+
+The qBittorrent WebUI is bound to `127.0.0.1:7002`. AutoStream communicates with it through Docker's internal network; its API is not exposed to other devices by default.
+
+## Development
 
 ```bash
-docker compose -f docker-compose.nightly.yml ps
-docker compose -f docker-compose.nightly.yml logs -f autostream
+npm install
+npm run check
+npm start
 ```
 
-Update to the newest nightly:
+Build the complete local stack:
 
 ```bash
-docker compose -f docker-compose.nightly.yml pull
-docker compose -f docker-compose.nightly.yml up -d
+docker compose up -d --build
 ```
 
-Nightly builds are intended for testing and may change before they are merged into the stable image.
+## License
 
-## Stremio installation
-
-Open AutoStream's dashboard, go to **Settings**, and copy the manifest URL shown there.
-
-## Network warning
-
-AutoStream is designed for a trusted local network. It does not currently include user authentication. Do not expose it directly to the public internet without securing it yourself.
+AutoStream is released under the [MIT License](LICENSE). qBittorrent and other independently distributed components retain their own licenses; see [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md).

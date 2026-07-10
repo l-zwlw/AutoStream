@@ -16,7 +16,7 @@ services:
     restart: unless-stopped
 
   qbittorrent:
-    image: lscr.io/linuxserver/qbittorrent:latest
+    image: ghcr.io/l-zwlw/autostream-qbittorrent:nightly
     container_name: autostream-qbittorrent
     environment:
       PUID: "1000"
@@ -31,5 +31,4 @@ services:
     volumes:
       - ./qbittorrent:/config
       - ./downloads:/downloads
-      - ./docker/qbittorrent/10-autostream-config.sh:/custom-cont-init.d/10-autostream-config.sh:ro
     restart: unless-stopped

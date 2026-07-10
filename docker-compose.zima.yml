@@ -16,7 +16,7 @@ services:
     restart: unless-stopped
 
   qbittorrent:
-    image: lscr.io/linuxserver/qbittorrent:latest
+    image: ghcr.io/l-zwlw/autostream-qbittorrent:nightly
     container_name: autostream-qbittorrent
     environment:
       PUID: "1000"
@@ -31,29 +31,4 @@ services:
     volumes:
       - ./qbittorrent:/config
       - ./downloads:/downloads
-    depends_on:
-      qbittorrent-init:
-        condition: service_completed_successfully
     restart: unless-stopped
-
-  qbittorrent-init:
-    image: alpine:3.22
-    container_name: autostream-qbittorrent-init
-    user: root
-    volumes:
-      - ./qbittorrent:/config
-    command:
-      - /bin/sh
-      - -c
-      - |
-        config="/config/qBittorrent/qBittorrent.conf"
-        mkdir -p "$$(dirname "$$config")"
-        touch "$$config"
-
-        if ! grep -q '^WebUI\\AuthSubnetWhitelistEnabled=' "$$config"; then
-          printf '\n[Preferences]\nWebUI\\AuthSubnetWhitelist=172.16.0.0/12\nWebUI\\AuthSubnetWhitelistEnabled=true\n' >> "$$config"
-        fi
-
-        chown -R 1000:1000 /config
-        echo "qBittorrent configured for AutoStream"
-    restart: "no"

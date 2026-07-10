@@ -54,7 +54,7 @@ AutoStream currently performs fallback before playback begins. Seamless switchin
 
 ## ZimaOS nightly installation
 
-Create a custom app and paste the contents of [`docker-compose.zima.yml`](docker-compose.zima.yml). The services are deliberately ordered with AutoStream first, qBittorrent second, and the one-time Alpine initializer last.
+Create a custom app and paste the contents of [`docker-compose.zima.yml`](docker-compose.zima.yml). It contains only two normal services, deliberately ordered with AutoStream first and its dedicated qBittorrent sidecar second.
 
 After the stack starts, open:
 

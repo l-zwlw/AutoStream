@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AutoStream · Dashboard access</title>
+  <link rel="icon" href="/favicon.png" />
+  <style>
+    :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 24px; background: radial-gradient(circle at top, #20323c, #0b1014 55%); color: #f5f7f8; }
+    .card { width: min(100%, 430px); padding: 34px; border: 1px solid #30434c; border-radius: 22px; background: rgba(17,25,30,.94); box-shadow: 0 24px 80px rgba(0,0,0,.45); }
+    .brand { display: flex; align-items: center; gap: 14px; margin-bottom: 28px; }
+    .brand img { width: 48px; height: 48px; border-radius: 13px; }
+    h1 { margin: 0; font-size: 25px; } p { color: #aab8bf; line-height: 1.55; }
+    label { display: block; margin: 22px 0 8px; font-weight: 650; }
+    input { width: 100%; padding: 14px; border-radius: 11px; border: 1px solid #3a4d56; background: #0d1519; color: white; font: inherit; }
+    input:focus { outline: 2px solid #e6a24b; border-color: transparent; }
+    button { width: 100%; margin-top: 18px; padding: 14px; border: 0; border-radius: 11px; background: #e6a24b; color: #17120b; font: inherit; font-weight: 750; cursor: pointer; }
+    button:disabled { opacity: .6; cursor: wait; }
+    .error { min-height: 22px; color: #ff9b9b; margin-top: 12px; }
+    .hint { font-size: 13px; }
+  </style>
+</head>
+<body>
+  <main class="card">
+    <div class="brand"><img src="/icon.png" alt="" /><div><h1>AutoStream</h1><div id="modeLabel">Dashboard access</div></div></div>
+    <p id="description">Enter the dashboard password to manage profiles, addons and settings.</p>
+    <form id="form">
+      <label for="password">Password</label>
+      <input id="password" type="password" minlength="10" autocomplete="current-password" required autofocus />
+      <div id="confirmWrap" hidden>
+        <label for="confirm">Repeat password</label>
+        <input id="confirm" type="password" minlength="10" autocomplete="new-password" />
+      </div>
+      <button id="submit">Continue</button>
+      <div class="error" id="error"></div>
+      <p class="hint" id="hint"></p>
+    </form>
+  </main>
+  <script>
+    let setup = false;
+    const form = document.getElementById('form');
+    const error = document.getElementById('error');
+    async function initialize() {
+      const response = await fetch('/api/auth/status');
+      const state = await response.json();
+      if (state.authenticated) return location.replace('/');
+      setup = !state.configured;
+      document.getElementById('confirmWrap').hidden = !setup;
+      document.getElementById('confirm').required = setup;
+      document.getElementById('password').autocomplete = setup ? 'new-password' : 'current-password';
+      document.getElementById('modeLabel').textContent = setup ? 'First-time setup' : 'Dashboard access';
+      document.getElementById('description').textContent = setup
+        ? 'Create one administrator password for this AutoStream dashboard.'
+        : 'Enter the dashboard password to manage profiles, addons and settings.';
+      document.getElementById('hint').textContent = setup ? 'Use at least 10 characters. Viewer profiles do not need separate passwords.' : '';
+    }
+    form.addEventListener('submit', async event => {
+      event.preventDefault(); error.textContent = '';
+      const password = document.getElementById('password').value;
+      if (setup && password !== document.getElementById('confirm').value) {
+        error.textContent = 'The passwords do not match.'; return;
+      }
+      const button = document.getElementById('submit'); button.disabled = true;
+      const response = await fetch(setup ? '/api/auth/setup' : '/api/auth/login', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password })
+      });
+      const result = await response.json(); button.disabled = false;
+      if (!response.ok) { error.textContent = result.error || 'Access denied.'; return; }
+      location.replace('/');
+    });
+    initialize().catch(() => error.textContent = 'Could not connect to AutoStream.');
+  </script>
+</body>
+</html>

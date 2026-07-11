@@ -1,35 +1,34 @@
 import { getAddons } from "../services/addons";
 
 export async function getAddonStreams(type: string, id: string) {
-  const addons = getAddons();
-
-  let streams: any[] = [];
-
-  for (const addon of addons) {
-    if (addon.enabled === false) {
-      continue;
-    }
-
-    try {
+  const addons = getAddons().filter((addon: any) => addon.enabled !== false);
+  const results = await Promise.all(
+    addons.map(async (addon: any) => {
+      try {
       const url = `${addon.url}/stream/${type}/${id}.json`;
 
       console.log("Loading addon:", url);
 
-      const response = await fetch(url);
+      const response = await fetch(url, {
+        signal: AbortSignal.timeout(8_000)
+      });
 
       if (!response.ok) {
-        continue;
+        return [];
       }
 
       const data: any = await response.json();
 
       if (data.streams) {
-        streams.push(...data.streams);
+        return data.streams;
       }
+      return [];
     } catch (error) {
       console.log("Addon failed:", addon.name || addon.url);
+      return [];
     }
-  }
+    })
+  );
 
-  return streams;
+  return results.flat();
 }

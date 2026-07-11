@@ -9,19 +9,19 @@
 </p>
 
 <p align="center">
-  <img alt="Version" src="https://img.shields.io/badge/nightly-1.1.0-7857ff" />
+  <img alt="Version" src="https://img.shields.io/badge/release-1.1.0-4dff9f" />
   <img alt="Docker" src="https://img.shields.io/badge/Docker-GHCR-2496ed" />
   <img alt="License" src="https://img.shields.io/badge/license-MIT-4dff9f" />
 </p>
 
-> [!IMPORTANT]
-> AutoStream 1.1 is currently a nightly preview. The startup-fallback engine is ready for real-world testing but has not yet been promoted to `latest`.
+> [!NOTE]
+> AutoStream 1.1 introduces household profiles, dashboard authentication and a bounded qBittorrent startup check. The experimental HTTP/mid-stream proxy is intentionally unavailable in the stable release until seeking and fallback pass extended reliability testing.
 
 ## What AutoStream does
 
 AutoStream queries every enabled Stremio addon, combines their stream results, applies the selected playback profile, and returns exactly one result to Stremio.
 
-The 1.1 nightly adds an optional qBittorrent startup check. Before returning a torrent, AutoStream verifies that the exact requested movie or episode receives real download data. Dead candidates are removed and the next ranked candidate is tried automatically.
+The optional qBittorrent startup check verifies the exact requested movie or episode. It has a six-second total budget; if verification cannot finish in time, AutoStream immediately returns the highest-ranked result instead of leaving Stremio loading.
 
 ## Highlights
 
@@ -33,6 +33,8 @@ The 1.1 nightly adds an optional qBittorrent startup check. Before returning a t
 - Movie collections and season packs restricted to the requested `fileIdx`
 - Temporary fallback torrents and files removed automatically
 - Responsive self-hosted dashboard
+- Household profiles with individual settings and Stremio install URLs
+- One-password dashboard protection with rate limiting
 - Multi-architecture Docker images for AMD64 and ARM64
 - Docker, ZimaOS, and GHCR support
 
@@ -50,9 +52,9 @@ qBittorrent tests candidate 1
       └─ timeout or failure → clean up and try candidate 2
 ```
 
-AutoStream currently performs fallback before playback begins. Seamless switching during an already playing video is not part of this nightly.
+AutoStream currently performs fallback before playback begins. Mid-stream HTTP fallback remains under development and is not enabled in 1.1.
 
-## ZimaOS nightly installation
+## ZimaOS installation
 
 Create a custom app and paste the contents of [`docker-compose.zima.yml`](docker-compose.zima.yml). It contains only two normal services, deliberately ordered with AutoStream first and its dedicated qBittorrent sidecar second.
 
@@ -62,9 +64,9 @@ After the stack starts, open:
 http://YOUR-ZIMAOS-IP:7001
 ```
 
-Then open **Settings**, configure the playback profile and fallback preferences, and copy the generated Stremio manifest URL.
+On first visit, create the dashboard password. Then open **Profiles**, create a profile for each viewer, configure it under **Settings**, and install its personal manifest URL in Stremio.
 
-### Update the nightly
+### Update
 
 Pull and recreate the stack from the ZimaOS interface, or run:
 
@@ -76,10 +78,10 @@ docker compose -f docker-compose.zima.yml up -d
 ## Docker Compose from Git
 
 ```bash
-git clone --branch agent/nightly-fallback https://github.com/l-zwlw/AutoStream.git
+git clone https://github.com/l-zwlw/AutoStream.git
 cd AutoStream
-docker compose -f docker-compose.nightly.yml pull
-docker compose -f docker-compose.nightly.yml up -d
+docker compose -f docker-compose.zima.yml pull
+docker compose -f docker-compose.zima.yml up -d
 ```
 
 ## Ports and storage
@@ -89,7 +91,7 @@ docker compose -f docker-compose.nightly.yml up -d
 | AutoStream dashboard and manifest | `7001` | Available on the local network |
 | qBittorrent WebUI | `127.0.0.1:7002` | Host-local only |
 | BitTorrent traffic | `6882/tcp` and `6882/udp` | Avoids the common host port 6881 |
-| Persistent settings | `./data` | Addons and AutoStream settings |
+| Persistent settings | `./data` | Addons, profiles, settings and password hash |
 | Temporary fallback data | `./downloads` | Cleaned after each candidate test |
 | qBittorrent configuration | `./qbittorrent` | Persistent internal engine settings |
 
@@ -108,7 +110,7 @@ The Debrid profile scores streams already provided by debrid-enabled addons. Aut
 ## Fallback settings
 
 - **Automatic startup fallback:** enable or disable qBittorrent candidate testing
-- **Seconds per candidate:** 5–60 seconds
+- **Seconds per candidate:** 3–8 seconds
 - **Maximum candidates:** 1–10 candidates
 - **Minimum verified download:** 64–4096 KB
 
@@ -117,15 +119,17 @@ For multi-file torrents, every unrelated file is assigned priority `0`; only the
 ## Status API
 
 ```text
-GET /api/status
-GET /api/qbittorrent/status
+GET /api/status (dashboard login required)
+GET /api/qbittorrent/status (dashboard login required)
 ```
 
 The dashboard uses these endpoints to display the real release version and fallback-engine state.
 
 ## Security
 
-AutoStream is intended for a trusted local network and does not currently include user authentication. Do not expose port 7001 directly to the public internet without adding your own access controls.
+The dashboard and management APIs require one administrator password. Passwords are stored as a salted `scrypt` hash; session cookies are `HttpOnly`, `SameSite=Strict`, and automatically `Secure` behind HTTPS. Stremio manifest and playback routes remain public because Stremio cannot use the dashboard login.
+
+Viewer profiles are preference profiles, not separate security accounts. Anyone who can log in to the dashboard can manage every profile. When exposing AutoStream outside the home, keep using a trusted HTTPS reverse proxy and appropriate network access controls.
 
 The qBittorrent WebUI is bound to `127.0.0.1:7002`. AutoStream communicates with it through Docker's internal network; its API is not exposed to other devices by default.
 

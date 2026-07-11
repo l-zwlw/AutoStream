@@ -5,6 +5,8 @@ on:
     branches:
       - main
       - agent/nightly-fallback
+    tags:
+      - "v*"
   workflow_dispatch:
 
 permissions:
@@ -46,7 +48,9 @@ jobs:
         id: image
         shell: bash
         run: |
-          if [[ "${GITHUB_REF}" == "refs/heads/main" ]]; then
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            echo "tag=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
+          elif [[ "${GITHUB_REF}" == "refs/heads/main" ]]; then
             echo "tag=latest" >> "$GITHUB_OUTPUT"
           else
             echo "tag=nightly" >> "$GITHUB_OUTPUT"

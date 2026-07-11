@@ -5,6 +5,10 @@ import {
   getQBittorrentStatus,
   selectFirstPlayableTorrent
 } from "./services/qbittorrent";
+import { createStreamingSession } from "./services/streaming";
+
+const experimentalHttpEnabled =
+  process.env.ENABLE_EXPERIMENTAL_HTTP === "true";
 
 function getProfileName(profile: string) {
   switch (profile) {
@@ -28,14 +32,19 @@ function getProfileName(profile: string) {
   }
 }
 
-export async function getStreams(type: string, id: string) {
+export async function getStreams(
+  type: string,
+  id: string,
+  publicBaseUrl?: string,
+  profileSettings?: any
+) {
   const streams = await getAddonStreams(type, id);
 
   if (!streams.length) {
     return [];
   }
 
-  const settings = getSettings();
+  const settings = profileSettings || getSettings();
 
   const ranked = rankStreams(streams, settings);
 
@@ -45,6 +54,40 @@ export async function getStreams(type: string, id: string) {
 
   let stream = ranked[0];
   const qbittorrent = await getQBittorrentStatus();
+
+  if (
+    publicBaseUrl &&
+    experimentalHttpEnabled &&
+    qbittorrent.online &&
+    settings.profile !== "debrid" &&
+    settings.playbackMethod === "http" &&
+    settings.midstream?.enabled === true
+  ) {
+    try {
+      const session = await createStreamingSession(
+        ranked,
+        settings.fallback,
+        settings.midstream,
+        `${type}:${id}`
+      );
+
+      return [
+        {
+          name: `${getProfileName(settings.profile)} · Auto fallback`,
+          title: "🍿 HTTP stream",
+          url: `${publicBaseUrl}/play/${session.id}/index.m3u8`,
+          behaviorHints: {
+            bingeGroup: `autostream|${type}|${id}`
+          }
+        }
+      ];
+    } catch (error) {
+      console.error(
+        "Could not create mid-stream session; using startup fallback:",
+        error
+      );
+    }
+  }
 
   if (
     qbittorrent.online &&

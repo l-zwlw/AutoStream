@@ -8,6 +8,8 @@ services:
       PORT: "7001"
       QBITTORRENT_URL: "http://qbittorrent:7002"
       DOWNLOADS_PATH: "/downloads"
+      AUTOSTREAM_ADMIN_PASSWORD: "${AUTOSTREAM_ADMIN_PASSWORD:-}"
+      ENABLE_EXPERIMENTAL_HTTP: "false"
     volumes:
       - ./data:/app/data
       - ./downloads:/downloads

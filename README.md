@@ -78,7 +78,7 @@ Each playback request gets its own session URL. Sessions for the same content sh
 
 ## ZimaOS installation
 
-Create a custom app and paste the contents of [`docker-compose.zima.yml`](docker-compose.zima.yml). It contains three normal services, deliberately ordered with AutoStream first, followed by its qBittorrent and streaming-engine sidecars.
+Create a custom app and paste the contents of [`docker-compose.yml`](docker-compose.yml). It is a normal Compose stack with three services, deliberately ordered with AutoStream first, followed by its qBittorrent and streaming-engine sidecars.
 
 After the stack starts, open:
 
@@ -93,8 +93,8 @@ On first visit, create the dashboard password. Then open **Profiles**, create a 
 Pull and recreate the stack from the ZimaOS interface, or run:
 
 ```bash
-docker compose -f docker-compose.zima.yml pull
-docker compose -f docker-compose.zima.yml up -d
+docker compose pull
+docker compose up -d
 ```
 
 ## Docker Compose from Git
@@ -102,8 +102,8 @@ docker compose -f docker-compose.zima.yml up -d
 ```bash
 git clone https://github.com/l-zwlw/AutoStream.git
 cd AutoStream
-docker compose -f docker-compose.zima.yml pull
-docker compose -f docker-compose.zima.yml up -d
+docker compose pull
+docker compose up -d
 ```
 
 ## Ports and storage
@@ -167,7 +167,7 @@ npm start
 Build the complete local stack:
 
 ```bash
-docker compose up -d --build
+docker compose -f docker-compose.dev.yml up -d --build
 ```
 
 ## License

@@ -1,6 +1,6 @@
 services:
   autostream:
-    image: ghcr.io/l-zwlw/autostream:1.1.0
+    build: .
     container_name: autostream
     ports:
       - "7001:7001"
@@ -10,6 +10,7 @@ services:
       DOWNLOADS_PATH: "/downloads"
       AUTOSTREAM_ADMIN_PASSWORD: "${AUTOSTREAM_ADMIN_PASSWORD:-}"
       ENABLE_EXPERIMENTAL_HTTP: "true"
+      STREAMING_TEST_MODE: "false"
       STREAM_ENGINE_URL: "http://stream-engine:7010"
     volumes:
       - ./data:/app/data
@@ -20,7 +21,10 @@ services:
     restart: unless-stopped
 
   qbittorrent:
-    image: ghcr.io/l-zwlw/autostream-qbittorrent:1.1.0
+    build:
+      context: .
+      dockerfile: docker/qbittorrent/Dockerfile
+    image: autostream-qbittorrent:local
     container_name: autostream-qbittorrent
     environment:
       PUID: "1000"
@@ -38,7 +42,10 @@ services:
     restart: unless-stopped
 
   stream-engine:
-    image: ghcr.io/l-zwlw/autostream-stream-engine:1.2.0
+    build:
+      context: .
+      dockerfile: docker/stream-engine/Dockerfile
+    image: autostream-stream-engine:local
     container_name: autostream-stream-engine
     environment:
       ENGINE_DOWNLOADS_PATH: "/downloads/engine"

@@ -9,13 +9,10 @@
 </p>
 
 <p align="center">
-  <img alt="Version" src="https://img.shields.io/badge/release-1.1.0-4dff9f" />
+  <img alt="Version" src="https://img.shields.io/badge/stable-1.2.0-4dff9f" />
   <img alt="Docker" src="https://img.shields.io/badge/Docker-GHCR-2496ed" />
   <img alt="License" src="https://img.shields.io/badge/license-MIT-4dff9f" />
 </p>
-
-> [!NOTE]
-> AutoStream 1.1 introduces household profiles, dashboard authentication and a bounded qBittorrent startup check. The experimental HTTP/mid-stream proxy is intentionally unavailable in the stable release until seeking and fallback pass extended reliability testing.
 
 ## What AutoStream does
 
@@ -37,6 +34,13 @@ The optional qBittorrent startup check verifies the exact requested movie or epi
 - One-password dashboard protection with rate limiting
 - Multi-architecture Docker images for AMD64 and ARM64
 - Docker, ZimaOS, and GHCR support
+- Seekable HTTP VOD with on-demand HLS segment generation
+- A dedicated libtorrent sidecar with time-critical piece deadlines
+- Mid-stream fallback at the same segment timestamp
+- Shared segment cache with independent sessions for multiple devices
+- Per-profile addon selection, device capabilities and stream rules
+- Addon health, reliability scoring and automatic temporary suppression
+- Backups, cache management and privacy-safe support reports
 
 ## How startup fallback works
 
@@ -52,11 +56,29 @@ qBittorrent tests candidate 1
       └─ timeout or failure → clean up and try candidate 2
 ```
 
-AutoStream currently performs fallback before playback begins. Mid-stream HTTP fallback remains under development and is not enabled in 1.1.
+Torrent passthrough retains the bounded startup fallback. HTTP mode uses a full VOD playlist: Stremio can seek anywhere, AutoStream generates only requested segments, and a failed segment is retried from the next candidate at the same timestamp.
+
+## HTTP VOD architecture
+
+```text
+Stremio profile URL
+      ↓
+Full seekable HLS VOD playlist
+      ↓
+Requested four-second segment
+      ↓
+libtorrent prioritizes the exact byte pieces
+      ↓
+FFmpeg produces fixed H.264/AAC MPEG-TS
+      ↓ failure
+Same timestamp is generated from candidate 2
+```
+
+Each playback request gets its own session URL. Sessions for the same content share the torrent and generated-segment cache, allowing multiple devices to watch or seek independently without duplicating work.
 
 ## ZimaOS installation
 
-Create a custom app and paste the contents of [`docker-compose.zima.yml`](docker-compose.zima.yml). It contains only two normal services, deliberately ordered with AutoStream first and its dedicated qBittorrent sidecar second.
+Create a custom app and paste the contents of [`docker-compose.zima.yml`](docker-compose.zima.yml). It contains three normal services, deliberately ordered with AutoStream first, followed by its qBittorrent and streaming-engine sidecars.
 
 After the stack starts, open:
 
@@ -91,6 +113,7 @@ docker compose -f docker-compose.zima.yml up -d
 | AutoStream dashboard and manifest | `7001` | Available on the local network |
 | qBittorrent WebUI | `127.0.0.1:7002` | Host-local only |
 | BitTorrent traffic | `6882/tcp` and `6882/udp` | Avoids the common host port 6881 |
+| HTTP streaming-engine traffic | `6883/tcp` and `6883/udp` | Dedicated libtorrent sidecar |
 | Persistent settings | `./data` | Addons, profiles, settings and password hash |
 | Temporary fallback data | `./downloads` | Cleaned after each candidate test |
 | qBittorrent configuration | `./qbittorrent` | Persistent internal engine settings |

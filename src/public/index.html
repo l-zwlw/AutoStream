@@ -284,7 +284,11 @@
     }
     .toggle.on { background: rgba(77,255,159,0.12); border-color: rgba(77,255,159,0.26); color: var(--green); }
 
-    .settings-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; align-items: start; }
+    .settings-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 18px; }
+    .settings-grid > .card {
+      width: 100%;
+      margin: 0;
+    }
     .field { display: grid; gap: 9px; margin-top: 18px; }
     .field label { font-size: 13px; color: var(--muted); font-weight: 750; }
     .hint { color: var(--muted-2); font-size: 12px; line-height: 1.45; }
@@ -324,7 +328,7 @@
       .sidebar { position: fixed; left: 0; top: 0; transform: translateX(-100%); z-index: 80; transition: .25s ease; width: 270px; }
       .sidebar.open { transform: none; }
       .hamburger { display: inline-flex; }
-      .grid-3, .addon-grid, .settings-grid { grid-template-columns: 1fr; }
+      .grid-3, .addon-grid { grid-template-columns: 1fr; }
       .topbar, .content { padding-left: 20px; padding-right: 20px; }
     }
   </style>
@@ -358,6 +362,14 @@
         <button class="nav-btn" data-page="settings">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 00.3 1.9l.1.1a2 2 0 11-2.9 2.9l-.1-.1a1.7 1.7 0 00-1.9-.3 1.7 1.7 0 00-1 1.6V21a2 2 0 11-4 0v-.1a1.7 1.7 0 00-1.1-1.6 1.7 1.7 0 00-1.9.3l-.1.1a2 2 0 11-2.9-2.9l.1-.1a1.7 1.7 0 00.3-1.9 1.7 1.7 0 00-1.6-1H3a2 2 0 110-4h.1a1.7 1.7 0 001.6-1 1.7 1.7 0 00-.3-1.9l-.1-.1a2 2 0 112.9-2.9l.1.1a1.7 1.7 0 001.9.3H9a1.7 1.7 0 001-1.6V3a2 2 0 114 0v.1a1.7 1.7 0 001 1.6 1.7 1.7 0 001.9-.3l.1-.1a2 2 0 112.9 2.9l-.1.1a1.7 1.7 0 00-.3 1.9V9a1.7 1.7 0 001.6 1H21a2 2 0 110 4h-.1a1.7 1.7 0 00-1.6 1z"/></svg>
           Settings
+        </button>
+        <button class="nav-btn" data-page="health">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 12h4l2-6 4 12 2-6h6"/></svg>
+          Health
+        </button>
+        <button class="nav-btn" data-page="tools">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 6l4-4 4 4-4 4M3 21l9-9M6 3l3 3-3 3-3-3z"/></svg>
+          Tools
         </button>
       </nav>
 
@@ -483,6 +495,7 @@
               <div class="install-url" id="profileInstallUrl">Loading...</div>
               <button class="btn btn-small btn-primary" id="copyProfileInstallBtn">Copy</button>
             </div>
+            <a class="btn" id="installProfileBtn" href="#" style="margin-top:12px;">Install in Stremio</a>
             <button class="btn btn-primary" id="editProfileSettingsBtn" style="margin-top:16px;">Edit this profile's settings</button>
           </div>
         </div>
@@ -565,6 +578,35 @@
             </div>
 
             <div class="card card-pad">
+              <h2>Device</h2>
+              <p class="hint" style="margin-top:8px;">Prevent formats this viewer's device cannot play.</p>
+              <div class="field"><label for="devicePreset">Preset</label><select class="select" id="devicePreset"><option value="automatic">Automatic</option><option value="mobile">Mobile</option><option value="legacyTv">Legacy TV</option><option value="homeTheater">Home Theater</option></select></div>
+              <div class="check-row"><label for="supports4k">4K</label><input id="supports4k" type="checkbox" /></div>
+              <div class="check-row"><label for="supportsHdr">HDR</label><input id="supportsHdr" type="checkbox" /></div>
+              <div class="check-row"><label for="supportsDolbyVision">Dolby Vision</label><input id="supportsDolbyVision" type="checkbox" /></div>
+              <div class="check-row"><label for="supportsHevc">HEVC / H.265</label><input id="supportsHevc" type="checkbox" /></div>
+              <div class="check-row"><label for="supportsAv1">AV1</label><input id="supportsAv1" type="checkbox" /></div>
+            </div>
+
+            <div class="card card-pad">
+              <h2>Stream rules</h2>
+              <div class="field"><label for="minimumQuality">Minimum quality</label><select class="select" id="minimumQuality"><option value="720p">720p</option><option value="1080p">1080p</option><option value="4k">4K</option></select></div>
+              <div class="field"><label for="maximumQuality">Maximum quality</label><select class="select" id="maximumQuality"><option value="720p">720p</option><option value="1080p">1080p</option><option value="4k">4K</option></select></div>
+              <div class="field"><label for="maximumSizeGb">Maximum size in GB (0 = unlimited)</label><input class="input" id="maximumSizeGb" type="number" min="0" max="500" /></div>
+              <div class="field"><label for="minimumSeeders">Minimum seeders</label><input class="input" id="minimumSeeders" type="number" min="0" max="10000" /></div>
+              <div class="field"><label for="preferredLanguage">Required language (optional)</label><input class="input" id="preferredLanguage" placeholder="English" /></div>
+              <div class="field"><label for="preferredCodec">Preferred codec</label><select class="select" id="preferredCodec"><option value="automatic">Automatic</option><option value="h264">H.264</option><option value="hevc">HEVC</option><option value="av1">AV1</option></select></div>
+              <div class="check-row"><label for="allowRemux">Allow REMUX</label><input id="allowRemux" type="checkbox" /></div>
+              <div class="check-row"><label for="preferHdr">Prefer HDR</label><input id="preferHdr" type="checkbox" /></div>
+            </div>
+
+            <div class="card card-pad">
+              <h2>Profile addons</h2>
+              <p class="hint" style="margin-top:8px;">Leave every box checked to use all shared addons.</p>
+              <div id="profileAddonList"></div>
+            </div>
+
+            <div class="card card-pad">
               <h2>Playback method</h2>
               <p class="hint" style="margin-top:8px;">Choose a stable torrent handoff or the experimental HTTP proxy.</p>
 
@@ -572,12 +614,12 @@
                 <label for="playbackMethod">Method</label>
                 <select class="select" id="playbackMethod">
                   <option value="torrent">Torrent passthrough (recommended)</option>
-                  <option value="http" id="httpPlaybackOption" disabled>HTTP proxy (coming later)</option>
+                  <option value="http" id="httpPlaybackOption" disabled>HTTP VOD with mid-stream fallback</option>
                 </select>
               </div>
 
               <div id="httpSettingsPanel">
-                <p class="hint">HTTP mode is under development. It will return after seeking and mid-stream fallback pass the full reliability test.</p>
+                <p class="hint">Seekable VOD segments are generated on demand, shared across devices and retried from another torrent at the same timestamp.</p>
 
               <div class="field">
                 <label for="midstreamPrebuffer">Prebuffer before playback (MB)</label>
@@ -615,6 +657,21 @@
             </div>
           </div>
         </div>
+
+        <div class="page" id="health">
+          <div class="section-head"><div><h2>Addon Health</h2><p>Availability, speed and reliability measured by AutoStream.</p></div><button class="btn btn-primary" id="testAddonsBtn">Test all addons</button></div>
+          <div class="addon-grid" id="healthGrid"></div>
+        </div>
+
+        <div class="page" id="tools">
+          <div class="section-head"><div><h2>Tools</h2><p>Cache management, backups and privacy-safe diagnostics.</p></div></div>
+          <div class="settings-grid">
+            <div class="card card-pad"><h2>Download cache & capacity</h2><p class="hint" id="cacheSummary">Loading...</p><div class="field"><label for="maximumCacheGb">Maximum generated segment cache (GB)</label><input class="input" id="maximumCacheGb" type="number" min="1" max="1000" /></div><div class="field"><label for="maximumConcurrentTranscodes">Simultaneous HTTP transcodes</label><input class="input" id="maximumConcurrentTranscodes" type="number" min="1" max="8" /></div><button class="btn" id="saveCacheSettingsBtn" style="margin-top:12px;">Save capacity settings</button><div id="cacheTorrents" style="margin-top:14px;"></div><button class="btn" id="clearCacheBtn" style="margin-top:16px;">Clear AutoStream cache</button></div>
+            <div class="card card-pad"><h2>HTTP streaming activity</h2><p class="hint" style="margin-top:8px;">A live overview of viewers and server capacity.</p><div class="grid grid-3" style="margin-top:18px;"><div><div class="stat-label">Sessions</div><div class="stat-value" id="activitySessions">0</div></div><div><div class="stat-label">Transcoding</div><div class="stat-value" id="activityTranscodes">0</div></div><div><div class="stat-label">Waiting</div><div class="stat-value" id="activityQueued">0</div></div></div><button class="btn" id="refreshActivityBtn" style="margin-top:18px;">Refresh activity</button></div>
+            <div class="card card-pad"><h2>Backup & restore</h2><p class="hint">Profiles, addons, settings and reliability data. Passwords and API secrets are excluded.</p><button class="btn" id="downloadBackupBtn" style="margin-top:16px;">Download backup</button><div class="field"><label for="restoreBackupInput">Restore backup</label><input class="input" id="restoreBackupInput" type="file" accept="application/json" /></div></div>
+            <div class="card card-pad"><h2>Support report</h2><p class="hint">Download a diagnostic report without passwords, tokens or addon URLs.</p><button class="btn" id="downloadDiagnosticsBtn" style="margin-top:16px;">Download support report</button></div>
+          </div>
+        </div>
       </section>
     </main>
   </div>
@@ -641,7 +698,9 @@
       status: '/api/status',
       addons: '/api/addons',
       settings: '/api/settings',
-      profiles: '/api/profiles'
+      profiles: '/api/profiles',
+      health: '/api/health',
+      cache: '/api/cache'
     };
 
     let addons = [];
@@ -692,6 +751,7 @@
       document.getElementById('installUrl').textContent = url;
       document.getElementById('settingsInstallUrl').textContent = url;
       document.getElementById('profileInstallUrl').textContent = url;
+      document.getElementById('installProfileBtn').href = url.replace(/^https?:\/\//, 'stremio://');
     }
 
     function initials(name) {
@@ -752,6 +812,19 @@
       document.getElementById('midstreamStallTimeout').value = settings.midstream?.stallTimeoutSeconds || 30;
       document.getElementById('midstreamSegmentSeconds').value = settings.midstream?.segmentSeconds || 4;
       document.getElementById('midstreamRetentionHours').value = settings.midstream?.retentionHours || 12;
+      document.getElementById('devicePreset').value = settings.device?.preset || 'automatic';
+      for (const key of ['supports4k','supportsHdr','supportsDolbyVision','supportsHevc','supportsAv1']) {
+        document.getElementById(key).checked = settings.device?.[key] !== false;
+      }
+      document.getElementById('minimumQuality').value = settings.rules?.minimumQuality || '720p';
+      document.getElementById('maximumQuality').value = settings.rules?.maximumQuality || '4k';
+      document.getElementById('maximumSizeGb').value = settings.rules?.maximumSizeGb || 0;
+      document.getElementById('minimumSeeders').value = settings.rules?.minimumSeeders || 0;
+      document.getElementById('preferredLanguage').value = settings.rules?.preferredLanguage || '';
+      document.getElementById('preferredCodec').value = settings.rules?.preferredCodec || 'automatic';
+      document.getElementById('allowRemux').checked = settings.rules?.allowRemux !== false;
+      document.getElementById('preferHdr').checked = settings.rules?.preferHdr === true;
+      renderProfileAddons();
       updateDebridPanel();
       updatePlaybackPanel();
       setInstallUrls();
@@ -764,6 +837,31 @@
         settings: {
         playbackMethod: document.getElementById('playbackMethod').value,
         profile,
+        addonIds: addons
+          .filter((addon, index) => document.getElementById(`profileAddon-${index}`)?.checked)
+          .map(addon => addon.instanceId),
+        addonSelectionConfigured: true,
+        addonPriorities: Object.fromEntries(
+          addons.map((addon, index) => [addon.instanceId, Number(document.getElementById(`profileAddonPriority-${index}`)?.value || 0)])
+        ),
+        device: {
+          preset: document.getElementById('devicePreset').value,
+          supports4k: document.getElementById('supports4k').checked,
+          supportsHdr: document.getElementById('supportsHdr').checked,
+          supportsDolbyVision: document.getElementById('supportsDolbyVision').checked,
+          supportsHevc: document.getElementById('supportsHevc').checked,
+          supportsAv1: document.getElementById('supportsAv1').checked
+        },
+        rules: {
+          minimumQuality: document.getElementById('minimumQuality').value,
+          maximumQuality: document.getElementById('maximumQuality').value,
+          maximumSizeGb: Number(document.getElementById('maximumSizeGb').value),
+          minimumSeeders: Number(document.getElementById('minimumSeeders').value),
+          preferredLanguage: document.getElementById('preferredLanguage').value.trim(),
+          preferredCodec: document.getElementById('preferredCodec').value,
+          allowRemux: document.getElementById('allowRemux').checked,
+          preferHdr: document.getElementById('preferHdr').checked
+        },
         fallback: {
           enabled: document.getElementById('fallbackEnabled').checked,
           candidateTimeoutSeconds: Number(document.getElementById('fallbackTimeout').value),
@@ -858,6 +956,102 @@
       addons = await res.json();
       renderAddons();
       document.getElementById('addonCount').textContent = addons.length;
+      renderProfileAddons();
+    }
+
+    function renderProfileAddons() {
+      const target = document.getElementById('profileAddonList');
+      if (!target) return;
+      const selected = settings.addonIds || [];
+      target.innerHTML = addons.map((addon, index) => `
+        <div class="check-row"><label for="profileAddon-${index}">${escapeHtml(addon.name)}</label><div style="display:flex;align-items:center;gap:10px"><input class="input" id="profileAddonPriority-${index}" type="number" min="-10" max="10" value="${Number(settings.addonPriorities?.[addon.instanceId] || 0)}" title="Priority -10 to 10" style="width:74px;padding:8px" /><input id="profileAddon-${index}" type="checkbox" ${!settings.addonSelectionConfigured || selected.includes(addon.instanceId) ? 'checked' : ''} /></div></div>
+      `).join('') || '<p class="hint">Add shared addons from the Addons page first.</p>';
+    }
+
+    async function loadHealth() {
+      const response = await fetch(API.health);
+      if (!response.ok) return;
+      const data = await response.json();
+      const byId = new Map((data.addons || []).map(item => [item.addonId, item]));
+      document.getElementById('healthGrid').innerHTML = addons.map(addon => {
+        const health = byId.get(addon.id);
+        const status = health?.lastError ? 'Offline' : health?.lastCheckedAt ? 'Online' : 'Not tested';
+        return `<div class="card addon-card"><div class="addon-head">${addonLogo(addon)}<div><h3>${escapeHtml(addon.name)}</h3><p>${status}</p></div></div><p class="hint">Success: ${health ? Math.round(health.successRate * 100) : 0}% · Average: ${health?.averageLatencyMs || 0} ms · Streams: ${health?.streamsReturned || 0}</p>${health?.lastError ? `<p class="hint" style="color:#ff9b9b">${escapeHtml(health.lastError)}</p>` : ''}</div>`;
+      }).join('');
+    }
+
+    async function testAllAddons() {
+      const button = document.getElementById('testAddonsBtn');
+      button.disabled = true; button.textContent = 'Testing...';
+      const response = await fetch(`${API.health}/test`, { method: 'POST' });
+      button.disabled = false; button.textContent = 'Test all addons';
+      if (!response.ok) return toast('Error', 'Addon test failed.');
+      await loadHealth(); toast('Finished', 'Every addon was checked.');
+    }
+
+    function formatBytes(bytes) {
+      if (!bytes) return '0 MB';
+      const units = ['B','KB','MB','GB','TB']; let value = bytes; let unit = 0;
+      while (value >= 1024 && unit < units.length - 1) { value /= 1024; unit += 1; }
+      return `${value.toFixed(unit < 2 ? 0 : 1)} ${units[unit]}`;
+    }
+
+    async function loadCache() {
+      const response = await fetch(API.cache); const data = await response.json();
+      document.getElementById('cacheSummary').textContent = `${formatBytes(data.sizeBytes)} used · ${(data.torrents || []).length} active torrent(s)`;
+      document.getElementById('maximumCacheGb').value = data.settings?.maximumGb || 50;
+      document.getElementById('maximumConcurrentTranscodes').value = data.settings?.maximumConcurrentTranscodes || 2;
+      document.getElementById('cacheTorrents').innerHTML = (data.torrents || []).map(torrent => `<p class="hint">${escapeHtml(torrent.name)} · ${escapeHtml(torrent.state)} · ${formatBytes(torrent.downloaded)}</p>`).join('');
+    }
+
+    async function loadStreamingActivity() {
+      try {
+        const response = await fetch('/api/streaming/sessions');
+        if (!response.ok) return;
+        const data = await response.json();
+        document.getElementById('activitySessions').textContent = data.sessions || 0;
+        document.getElementById('activityTranscodes').textContent = data.activeTranscodes || 0;
+        document.getElementById('activityQueued').textContent = data.queuedTranscodes || 0;
+      } catch {
+        // The dashboard remains usable when the optional streaming engine is offline.
+      }
+    }
+
+    async function clearCache() {
+      if (!window.confirm('Stop and remove every AutoStream cache torrent?')) return;
+      const response = await fetch(API.cache, { method: 'DELETE' });
+      if (!response.ok) return toast('Error', 'Could not clear cache.');
+      await loadCache(); toast('Cache cleared', 'AutoStream temporary torrents were removed.');
+    }
+
+    async function saveCacheLimit() {
+      const response = await fetch(API.cache, { method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ maximumGb:Number(document.getElementById('maximumCacheGb').value), maximumConcurrentTranscodes:Number(document.getElementById('maximumConcurrentTranscodes').value) }) });
+      if (!response.ok) return toast('Error', 'Could not save cache limit.');
+      await loadCache(); toast('Saved', 'Cache limit updated.');
+    }
+
+    function downloadJson(url) { window.location.href = url; }
+
+    async function restoreBackupFile(event) {
+      const file = event.target.files?.[0]; if (!file) return;
+      try {
+        const backup = JSON.parse(await file.text());
+        const response = await fetch('/api/backup/restore', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(backup) });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Restore failed');
+        await init(); toast('Backup restored', `${data.restored.length} data file(s) restored.`);
+      } catch (error) { toast('Restore failed', error.message || 'Invalid backup file.'); }
+      event.target.value = '';
+    }
+
+    function applyDevicePreset() {
+      const preset = document.getElementById('devicePreset').value;
+      const values = preset === 'mobile'
+        ? [false, false, false, true, true]
+        : preset === 'legacyTv'
+          ? [false, false, false, false, false]
+          : [true, true, true, true, true];
+      ['supports4k','supportsHdr','supportsDolbyVision','supportsHevc','supportsAv1'].forEach((key, index) => document.getElementById(key).checked = values[index]);
     }
 
     function renderAddons() {
@@ -957,11 +1151,14 @@
         dashboard: ['Dashboard', 'Just Press Play.'],
         addons: ['Addons', 'Manage your stream sources.'],
         profiles: ['Profiles', 'Personal settings for every viewer.'],
-        settings: ['Settings', 'Configure AutoStream.']
+        settings: ['Settings', 'Configure AutoStream.'],
+        health: ['Addon Health', 'Reliability measured over time.'],
+        tools: ['Tools', 'Cache, backups and diagnostics.']
       };
       document.getElementById('pageTitle').textContent = titles[page][0];
       document.getElementById('pageSubtitle').textContent = titles[page][1];
       document.getElementById('sidebar').classList.remove('open');
+      if (page === 'tools') void loadStreamingActivity();
     }
 
     document.querySelectorAll('.nav-btn').forEach(btn => btn.addEventListener('click', () => goTo(btn.dataset.page)));
@@ -989,13 +1186,26 @@
     document.getElementById('newProfileBtn').addEventListener('click', createViewerProfile);
     document.getElementById('deleteProfileBtn').addEventListener('click', deleteViewerProfile);
     document.getElementById('saveSettingsBtn').addEventListener('click', saveSettings);
+    document.getElementById('devicePreset').addEventListener('change', applyDevicePreset);
+    document.getElementById('testAddonsBtn').addEventListener('click', testAllAddons);
+    document.getElementById('clearCacheBtn').addEventListener('click', clearCache);
+    document.getElementById('saveCacheSettingsBtn').addEventListener('click', saveCacheLimit);
+    document.getElementById('refreshActivityBtn').addEventListener('click', loadStreamingActivity);
+    document.getElementById('downloadBackupBtn').addEventListener('click', () => downloadJson('/api/backup'));
+    document.getElementById('downloadDiagnosticsBtn').addEventListener('click', () => downloadJson('/api/diagnostics'));
+    document.getElementById('restoreBackupInput').addEventListener('change', restoreBackupFile);
 
     async function init() {
       await Promise.all([loadProfiles(), loadAddons()]);
-      await loadStatus();
+      await Promise.all([loadStatus(), loadHealth(), loadCache(), loadStreamingActivity()]);
     }
 
     init();
+    setInterval(() => {
+      if (document.getElementById('tools').classList.contains('active')) {
+        void loadStreamingActivity();
+      }
+    }, 5000);
   </script>
 </body>
 </html>

@@ -1,11 +1,16 @@
 type Settings = {
   profile?: string;
+  addonPriorities?: Record<string, number>;
+  device?: Record<string, any>;
+  rules?: Record<string, any>;
   debrid?: {
     enabled?: boolean;
     provider?: string;
     apiKey?: string;
   };
 };
+
+import { getAddonReliability, getStreamReliability } from "./health";
 
 function getText(stream: any) {
   return `${stream.name || ""} ${stream.title || ""} ${stream.behaviorHints?.filename || ""}`.toLowerCase();
@@ -63,6 +68,32 @@ function getQuality(text: string) {
   if (text.includes("720p")) return "720p";
 
   return "unknown";
+}
+
+function matchesLanguage(text: string, requested: string) {
+  const language = requested.trim().toLowerCase();
+  if (!language) return true;
+  const aliases: Record<string, string[]> = {
+    english: ["english", " eng ", "🇬🇧", "🇺🇸"],
+    dutch: ["dutch", " nederlands", " nl ", "🇳🇱"],
+    german: ["german", " deutsch", " ger ", "🇩🇪"],
+    french: ["french", " français", " fre ", "🇫🇷"],
+    spanish: ["spanish", " español", " spa ", "🇪🇸"],
+    italian: ["italian", " italiano", " ita ", "🇮🇹"]
+  };
+  const values = aliases[language] || [language];
+  return values.some((value) => ` ${text} `.includes(value));
+}
+
+const qualityRank: Record<string, number> = {
+  unknown: 0,
+  "720p": 1,
+  "1080p": 2,
+  "4k": 3
+};
+
+function qualityValue(quality: string) {
+  return qualityRank[quality] ?? 0;
 }
 
 function getQualityScore(text: string, profile: string) {
@@ -171,6 +202,8 @@ export function rankStreams(streams: any[], settings: Settings = {}) {
   const profile = settings.profile || "balanced";
   const debridConfigured = Boolean(settings.debrid?.provider && settings.debrid?.apiKey);
   const effectiveProfile = profile === "debrid" && debridConfigured ? "debrid" : profile;
+  const rules = settings.rules || {};
+  const device = settings.device || {};
 
   const scored = streams
     .filter((stream) => {
@@ -179,8 +212,29 @@ export function rankStreams(streams: any[], settings: Settings = {}) {
       if (isBadStream(text)) return false;
 
       const quality = getQuality(text);
-
-      return quality !== "unknown";
+      if (quality === "unknown") return false;
+      if (
+        rules.minimumQuality &&
+        qualityValue(quality) < qualityValue(rules.minimumQuality)
+      ) return false;
+      if (
+        rules.maximumQuality &&
+        qualityValue(quality) > qualityValue(rules.maximumQuality)
+      ) return false;
+      if (!device.supports4k && quality === "4k") return false;
+      if (!device.supportsDolbyVision && /dolby vision|\bdv\b/i.test(text)) return false;
+      if (!device.supportsHdr && /hdr|dolby vision|\bdv\b/i.test(text)) return false;
+      if (!device.supportsHevc && /hevc|x265|h.?265/i.test(text)) return false;
+      if (!device.supportsAv1 && /\bav1\b/i.test(text)) return false;
+      if (rules.allowRemux === false && text.includes("remux")) return false;
+      const size = getSizeGb(text);
+      if (rules.maximumSizeGb > 0 && size > rules.maximumSizeGb) return false;
+      if (rules.minimumSeeders > 0 && getSeeders(text) < rules.minimumSeeders) return false;
+      if (
+        rules.preferredLanguage &&
+        !matchesLanguage(text, String(rules.preferredLanguage))
+      ) return false;
+      return true;
     })
     .map((stream) => {
       const text = getText(stream);
@@ -193,6 +247,14 @@ export function rankStreams(streams: any[], settings: Settings = {}) {
       score += getQualityScore(text, effectiveProfile);
       score += getSizeScore(sizeGb, effectiveProfile);
       score += getSeederScore(seeders, effectiveProfile);
+      score += getAddonReliability(stream._autostreamAddonId) * 30;
+      score += getStreamReliability(stream.infoHash) * 30;
+      score += Number(settings.addonPriorities?.[stream._autostreamAddonId] || 0) * 10;
+
+      if (rules.preferHdr && /hdr|dolby vision|\bdv\b/i.test(text)) score += 20;
+      if (rules.preferredCodec === "hevc" && /hevc|x265|h.?265/i.test(text)) score += 18;
+      if (rules.preferredCodec === "av1" && /\bav1\b/i.test(text)) score += 18;
+      if (rules.preferredCodec === "h264" && /h.?264|x264|avc/i.test(text)) score += 18;
 
       if (effectiveProfile === "debrid") {
         score += getDebridScore(text);

@@ -7,6 +7,7 @@
     "logo": "https://torrentio.strem.fun/images/logo_v1.png",
     "url": "https://torrentio.strem.fun",
     "manifestUrl": "https://torrentio.strem.fun/manifest.json",
-    "enabled": true
+    "enabled": true,
+    "instanceId": "c283df5a70f3ab547d61fc55"
   }
 ]

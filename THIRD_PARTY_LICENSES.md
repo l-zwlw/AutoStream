@@ -16,7 +16,18 @@ The nightly Docker Compose stack runs qBittorrent as a separate container and co
 - Source: <https://github.com/arvidn/libtorrent>
 - License: BSD 3-Clause
 
-qBittorrent uses libtorrent as its BitTorrent engine.
+qBittorrent uses libtorrent as its BitTorrent engine. AutoStream 1.2 also runs
+libtorrent in a separate `autostream-stream-engine` container for selective,
+time-critical HTTP VOD streaming. The sidecar source is available in
+`docker/stream-engine/`.
+
+## FastAPI and Uvicorn
+
+- FastAPI source: <https://github.com/fastapi/fastapi> (MIT)
+- Uvicorn source: <https://github.com/encode/uvicorn> (BSD 3-Clause)
+
+These projects provide the internal HTTP interface of the independently
+distributed stream-engine container.
 
 ## LinuxServer.io qBittorrent image
 

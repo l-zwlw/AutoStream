@@ -9,12 +9,15 @@ services:
       QBITTORRENT_URL: "http://qbittorrent:7002"
       DOWNLOADS_PATH: "/downloads"
       AUTOSTREAM_ADMIN_PASSWORD: "${AUTOSTREAM_ADMIN_PASSWORD:-}"
-      ENABLE_EXPERIMENTAL_HTTP: "false"
+      ENABLE_EXPERIMENTAL_HTTP: "true"
+      STREAMING_TEST_MODE: "false"
+      STREAM_ENGINE_URL: "http://stream-engine:7010"
     volumes:
       - ./data:/app/data
       - ./downloads:/downloads
     depends_on:
       - qbittorrent
+      - stream-engine
     restart: unless-stopped
 
   qbittorrent:
@@ -35,5 +38,20 @@ services:
       - "6882:6881/udp"
     volumes:
       - ./qbittorrent:/config
+      - ./downloads:/downloads
+    restart: unless-stopped
+
+  stream-engine:
+    build:
+      context: .
+      dockerfile: docker/stream-engine/Dockerfile
+    image: autostream-stream-engine:local
+    container_name: autostream-stream-engine
+    environment:
+      ENGINE_DOWNLOADS_PATH: "/downloads/engine"
+    ports:
+      - "6883:6883"
+      - "6883:6883/udp"
+    volumes:
       - ./downloads:/downloads
     restart: unless-stopped

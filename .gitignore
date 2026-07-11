@@ -26,5 +26,7 @@ build/
 data/*.local.json
 data/profiles.json
 data/auth.json
+data/health.json
+data/cache.json
 /downloads/
 /qbittorrent/

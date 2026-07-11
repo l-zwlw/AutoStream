@@ -8,11 +8,14 @@ services:
       PORT: "7001"
       QBITTORRENT_URL: "http://qbittorrent:7002"
       DOWNLOADS_PATH: "/downloads"
+      STREAM_ENGINE_URL: "http://stream-engine:7010"
+      ENABLE_EXPERIMENTAL_HTTP: "true"
     volumes:
       - ./data:/app/data
       - ./downloads:/downloads
     depends_on:
       - qbittorrent
+      - stream-engine
     restart: unless-stopped
 
   qbittorrent:
@@ -30,5 +33,17 @@ services:
       - "6882:6881/udp"
     volumes:
       - ./qbittorrent:/config
+      - ./downloads:/downloads
+    restart: unless-stopped
+
+  stream-engine:
+    image: ghcr.io/l-zwlw/autostream-stream-engine:nightly
+    container_name: autostream-stream-engine
+    environment:
+      ENGINE_DOWNLOADS_PATH: "/downloads/engine"
+    ports:
+      - "6883:6883"
+      - "6883:6883/udp"
+    volumes:
       - ./downloads:/downloads
     restart: unless-stopped

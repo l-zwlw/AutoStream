@@ -1,6 +1,7 @@
 import express from "express";
 import cors from "cors";
 import path from "node:path";
+import crypto from "node:crypto";
 
 import { manifest } from "./manifest";
 import { getStreams } from "./streams";
@@ -15,15 +16,15 @@ import {
 } from "./services/settings";
 import { getQBittorrentStatus } from "./services/qbittorrent";
 import {
-  createStreamingSession,
-  getStreamingSegmentPath,
-  getStreamingSession,
-  getStreamingSessions,
-  restoreStreamingSessions,
-  touchStreamingSession,
-  waitForPlaylist
-} from "./services/streaming";
+  createVodSession,
+  getVodPlaylist,
+  getVodSegment,
+  getVodStatus,
+  clearVodCache
+} from "./services/vodStreaming";
+import { clearEngineTorrents, getStreamEngineStatus } from "./services/streamEngine";
 import { APP_VERSION, RELEASE_CHANNEL } from "./version";
+import fs from "node:fs";
 import {
   createProfile,
   deleteProfile,
@@ -44,6 +45,14 @@ import {
   setPassword,
   verifyPassword
 } from "./services/auth";
+import { createBackup, restoreBackup } from "./services/backup";
+import { getCacheSettings, saveCacheSettings } from "./services/cacheSettings";
+import { createDiagnosticReport } from "./services/diagnostics";
+import { getHealthData, recordAddonResult, resetHealthData } from "./services/health";
+import {
+  clearAutoStreamTorrents,
+  getAutoStreamTorrents
+} from "./services/qbittorrent";
 
 const app = express();
 const experimentalHttpEnabled =
@@ -129,20 +138,35 @@ app.get("/", (req, res) => {
   res.sendFile(path.join(process.cwd(), "src/public/index.html"));
 });
 
+app.get("/configure", (req, res) => {
+  res.redirect("/login?next=/profiles");
+});
+
+function manifestForRequest(req: express.Request, profile?: { id: string; name: string }) {
+  const baseUrl = `${req.protocol}://${req.get("host")}`;
+  return {
+    ...manifest,
+    ...(profile
+      ? {
+          id: `${manifest.id}.${profile.id}`,
+          name: `${manifest.name} · ${profile.name}`,
+          description: `${manifest.description} Profile: ${profile.name}.`
+        }
+      : {}),
+    logo: `${baseUrl}/icon.png`,
+    background: `${baseUrl}/logo.png`
+  };
+}
+
 app.get("/manifest.json", (req, res) => {
-  res.json(manifest);
+  res.json(manifestForRequest(req));
 });
 
 app.get("/p/:profileId/manifest.json", (req, res) => {
   const profile = getProfile(req.params.profileId);
   if (!profile) return res.status(404).json({ error: "Profile not found" });
 
-  res.json({
-    ...manifest,
-    id: `${manifest.id}.${profile.id}`,
-    name: `${manifest.name} · ${profile.name}`,
-    description: `${manifest.description} Profile: ${profile.name}.`
-  });
+  res.json(manifestForRequest(req, profile));
 });
 
 app.get("/stream/:type/:id.json", async (req, res) => {
@@ -182,6 +206,7 @@ app.get("/p/:profileId/stream/:type/:id.json", async (req, res) => {
 app.get("/api/status", async (req, res) => {
   const settings = getSettings();
   const qbittorrent = await getQBittorrentStatus();
+  const profiles = getProfiles();
 
   res.json({
     status: "online",
@@ -193,11 +218,14 @@ app.get("/api/status", async (req, res) => {
     fallbackEnabled:
       settings.fallback?.enabled !== false &&
       settings.profile !== "debrid",
-    midstreamEnabled:
-      settings.midstream?.enabled === true &&
-      settings.profile !== "debrid",
-    streamingSessions: getStreamingSessions().length,
+    midstreamEnabled: profiles.some(
+      (profile) =>
+        profile.settings.playbackMethod === "http" &&
+        profile.settings.profile !== "debrid"
+    ),
+    streamingSessions: getVodStatus().sessions,
     httpStreamingAvailable: experimentalHttpEnabled,
+    streamEngine: await getStreamEngineStatus(),
     fallbackEngine: qbittorrent
   });
 });
@@ -206,6 +234,132 @@ app.get("/api/qbittorrent/status", async (req, res) => {
   const status = await getQBittorrentStatus();
 
   res.status(status.online ? 200 : 503).json(status);
+});
+
+app.get("/api/health", (req, res) => {
+  res.json(getHealthData());
+});
+
+app.post("/api/health/test", async (req, res) => {
+  const results = await Promise.all(
+    getAddons().map(async (addon: any) => {
+      const startedAt = Date.now();
+      try {
+        const response = await fetch(addon.manifestUrl, {
+          signal: AbortSignal.timeout(8_000)
+        });
+        const result = {
+          addonId: addon.instanceId,
+          name: addon.name,
+          success: response.ok,
+          latencyMs: Date.now() - startedAt,
+          error: response.ok ? null : `HTTP ${response.status}`,
+          manifest: response.ok ? await response.json().catch(() => null) : null
+        };
+        recordAddonResult(addon.instanceId, {
+          success: result.success,
+          latencyMs: result.latencyMs,
+          streams: 0,
+          ...(result.error ? { error: result.error } : {})
+        });
+        return result;
+      } catch (error) {
+        const result = {
+          addonId: addon.instanceId,
+          name: addon.name,
+          success: false,
+          latencyMs: Date.now() - startedAt,
+          error: error instanceof Error ? error.message : "Request failed"
+        };
+        recordAddonResult(addon.instanceId, { ...result, streams: 0 });
+        return result;
+      }
+    })
+  );
+  const addons = getAddons();
+  for (const result of results) {
+    const manifest = result.manifest as any;
+    const addon = addons.find((item: any) => item.instanceId === result.addonId);
+    if (addon && manifest) {
+      addon.name = manifest.name || addon.name;
+      addon.version = manifest.version || addon.version;
+      addon.description = manifest.description || addon.description;
+      addon.logo = manifest.logo || addon.logo;
+    }
+  }
+  saveAddons(addons);
+  res.json({
+    results: results.map(({ manifest, ...result }) => result)
+  });
+});
+
+app.delete("/api/health", (req, res) => {
+  resetHealthData();
+  res.json({ success: true });
+});
+
+function directorySize(directory: string): number {
+  if (!fs.existsSync(directory)) return 0;
+  return fs.readdirSync(directory, { withFileTypes: true }).reduce((total, entry) => {
+    const entryPath = path.join(directory, entry.name);
+    return total + (entry.isDirectory() ? directorySize(entryPath) : fs.statSync(entryPath).size);
+  }, 0);
+}
+
+app.get("/api/cache", async (req, res) => {
+  const downloadsPath = process.env.DOWNLOADS_PATH || path.join(process.cwd(), "downloads");
+  try {
+    res.json({
+      sizeBytes: directorySize(downloadsPath),
+      torrents: await getAutoStreamTorrents(),
+      settings: getCacheSettings()
+    });
+  } catch (error) {
+    res.status(503).json({
+      sizeBytes: directorySize(downloadsPath),
+      torrents: [],
+      error: error instanceof Error ? error.message : "Cache unavailable"
+    });
+  }
+});
+
+app.patch("/api/cache", (req, res) => {
+  res.json({ success: true, settings: saveCacheSettings(req.body) });
+});
+
+app.delete("/api/cache", async (req, res) => {
+  try {
+    const [removed, engine] = await Promise.all([
+      clearAutoStreamTorrents(),
+      clearEngineTorrents()
+    ]);
+    const vodAssets = clearVodCache();
+    const downloadsPath = process.env.DOWNLOADS_PATH || path.join(process.cwd(), "downloads");
+    for (const directory of ["autostream", "engine", "hls"]) {
+      fs.rmSync(path.join(downloadsPath, directory), { recursive: true, force: true });
+    }
+    res.json({ success: true, removed, engineRemoved: engine.removed, vodAssets });
+  } catch (error) {
+    res.status(503).json({ error: error instanceof Error ? error.message : "Could not clear cache" });
+  }
+});
+
+app.get("/api/backup", (req, res) => {
+  res.setHeader("Content-Disposition", `attachment; filename=autostream-backup-${Date.now()}.json`);
+  res.json(createBackup());
+});
+
+app.post("/api/backup/restore", (req, res) => {
+  try {
+    res.json({ success: true, restored: restoreBackup(req.body) });
+  } catch (error) {
+    res.status(400).json({ error: error instanceof Error ? error.message : "Restore failed" });
+  }
+});
+
+app.get("/api/diagnostics", async (req, res) => {
+  res.setHeader("Content-Disposition", `attachment; filename=autostream-diagnostics-${Date.now()}.json`);
+  res.json(await createDiagnosticReport());
 });
 
 app.get("/api/profiles", (req, res) => {
@@ -260,17 +414,11 @@ app.delete("/api/profiles/:profileId", (req, res) => {
 });
 
 app.get("/api/streaming/sessions", (req, res) => {
-  res.json(getStreamingSessions());
+  res.json(getVodStatus());
 });
 
 app.get("/api/streaming/sessions/:id", (req, res) => {
-  const session = getStreamingSession(req.params.id);
-
-  if (!session) {
-    return res.status(404).json({ error: "Streaming session not found" });
-  }
-
-  res.json(session);
+  res.status(410).json({ error: "Legacy streaming session details are no longer available" });
 });
 
 app.post("/api/streaming/test", async (req, res) => {
@@ -279,13 +427,11 @@ app.post("/api/streaming/test", async (req, res) => {
   }
 
   try {
-    const settings = getSettings();
-    const session = await createStreamingSession(
+    const session = createVodSession(
+      `test:${crypto.randomUUID()}`,
       Array.isArray(req.body.candidates) ? req.body.candidates : [],
-      settings.fallback,
-      settings.midstream
+      req.body.settings || { segmentSeconds: 4, retentionHours: 1 }
     );
-
     res.json({
       ...session,
       url: `${req.protocol}://${req.get("host")}/play/${session.id}/index.m3u8`
@@ -298,33 +444,28 @@ app.post("/api/streaming/test", async (req, res) => {
 });
 
 app.get("/play/:sessionId/index.m3u8", async (req, res) => {
-  const playlistPath = await waitForPlaylist(req.params.sessionId);
-
-  if (!playlistPath) {
-    return res.status(503).json({
-      error: "Streaming playlist is not ready"
-    });
+  try {
+    const playlist = await getVodPlaylist(req.params.sessionId);
+    if (!playlist) return res.status(404).json({ error: "VOD session not found" });
+    res.type("application/vnd.apple.mpegurl");
+    res.setHeader("Cache-Control", "no-store");
+    res.send(playlist);
+  } catch (error) {
+    res.status(503).json({ error: error instanceof Error ? error.message : "Playlist unavailable" });
   }
-
-  res.setHeader("Content-Type", "application/vnd.apple.mpegurl");
-  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
-  res.sendFile(playlistPath);
 });
 
-app.get("/play/:sessionId/:segment", (req, res) => {
-  const segmentPath = getStreamingSegmentPath(
-    req.params.sessionId,
-    req.params.segment
-  );
-
-  if (!segmentPath) {
-    return res.status(404).json({ error: "Streaming segment not found" });
+app.get("/play/:sessionId/segment-:index.ts", async (req, res) => {
+  try {
+    const task = getVodSegment(req.params.sessionId, Number(req.params.index));
+    if (!task) return res.status(404).json({ error: "VOD session not found" });
+    const segmentPath = await task;
+    res.type("video/mp2t");
+    res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+    res.sendFile(segmentPath);
+  } catch (error) {
+    res.status(503).json({ error: error instanceof Error ? error.message : "Segment unavailable" });
   }
-
-  touchStreamingSession(req.params.sessionId);
-  res.setHeader("Content-Type", "video/mp2t");
-  res.setHeader("Cache-Control", "public, max-age=3600, immutable");
-  res.sendFile(segmentPath);
 });
 
 app.get("/api/settings", (req, res) => {
@@ -464,15 +605,6 @@ app.delete("/api/addons/:index", (req, res) => {
 });
 
 const PORT = Number(process.env.PORT || 7001);
-
-if (
-  experimentalHttpEnabled &&
-  getProfiles().some(
-    (profile) => profile.settings.playbackMethod === "http"
-  )
-) {
-  restoreStreamingSessions();
-}
 
 app.listen(PORT, "0.0.0.0", () => {
   console.log(

@@ -28,6 +28,11 @@ type TorrentInfo = {
   save_path: string;
 };
 
+export type TorrentSummary = Pick<
+  TorrentInfo,
+  "hash" | "name" | "state" | "downloaded" | "dlspeed" | "size"
+>;
+
 type TorrentFile = {
   index: number;
   name: string;
@@ -122,6 +127,22 @@ export async function getTorrent(infoHash: string): Promise<TorrentInfo | null> 
   const torrents = (await response.json()) as TorrentInfo[];
 
   return torrents[0] || null;
+}
+
+export async function getAutoStreamTorrents(): Promise<TorrentSummary[]> {
+  const response = await apiRequest(
+    "/api/v2/torrents/info?category=autostream"
+  );
+  if (!response.ok) {
+    throw new Error(`qBittorrent list returned HTTP ${response.status}`);
+  }
+  return (await response.json()) as TorrentSummary[];
+}
+
+export async function clearAutoStreamTorrents() {
+  const torrents = await getAutoStreamTorrents();
+  await Promise.all(torrents.map((torrent) => deleteTorrent(torrent.hash)));
+  return torrents.length;
 }
 
 async function addTorrent(candidate: TorrentCandidate) {

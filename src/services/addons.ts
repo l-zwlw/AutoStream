@@ -1,5 +1,6 @@
 import fs from "fs";
 import path from "path";
+import crypto from "node:crypto";
 
 const addonsFile = path.join(process.cwd(), "data/addons.json");
 
@@ -8,7 +9,20 @@ export function getAddons() {
     return [];
   }
 
-  return JSON.parse(fs.readFileSync(addonsFile, "utf-8"));
+  const addons = JSON.parse(fs.readFileSync(addonsFile, "utf-8"));
+  let changed = false;
+  for (const addon of addons) {
+    if (!addon.instanceId) {
+      addon.instanceId = crypto
+        .createHash("sha256")
+        .update(String(addon.manifestUrl || addon.url || addon.id))
+        .digest("hex")
+        .slice(0, 24);
+      changed = true;
+    }
+  }
+  if (changed) saveAddons(addons);
+  return addons;
 }
 
 export function saveAddons(addons: any[]) {
@@ -31,6 +45,7 @@ export async function createAddon(url: string) {
   const manifest: any = await response.json();
 
   return {
+    instanceId: crypto.randomUUID(),
     id: manifest.id || baseUrl,
     name: manifest.name || "Unknown Addon",
     version: manifest.version || "Unknown",

@@ -5,7 +5,9 @@ import {
   getQBittorrentStatus,
   selectFirstPlayableTorrent
 } from "./services/qbittorrent";
-import { createStreamingSession } from "./services/streaming";
+import { createVodSession } from "./services/vodStreaming";
+import { deduplicateStreams } from "./services/dedupe";
+import { recordStreamOutcome } from "./services/health";
 
 const experimentalHttpEnabled =
   process.env.ENABLE_EXPERIMENTAL_HTTP === "true";
@@ -38,13 +40,19 @@ export async function getStreams(
   publicBaseUrl?: string,
   profileSettings?: any
 ) {
-  const streams = await getAddonStreams(type, id);
+  const settings = profileSettings || getSettings();
+  const streams = deduplicateStreams(
+    await getAddonStreams(
+      type,
+      id,
+      settings.addonIds,
+      settings.addonSelectionConfigured
+    )
+  );
 
   if (!streams.length) {
     return [];
   }
-
-  const settings = profileSettings || getSettings();
 
   const ranked = rankStreams(streams, settings);
 
@@ -64,11 +72,10 @@ export async function getStreams(
     settings.midstream?.enabled === true
   ) {
     try {
-      const session = await createStreamingSession(
+      const session = createVodSession(
+        `${type}:${id}:${settings.profile}`,
         ranked,
-        settings.fallback,
-        settings.midstream,
-        `${type}:${id}`
+        settings.midstream
       );
 
       return [
@@ -77,7 +84,11 @@ export async function getStreams(
           title: "🍿 HTTP stream",
           url: `${publicBaseUrl}/play/${session.id}/index.m3u8`,
           behaviorHints: {
-            bingeGroup: `autostream|${type}|${id}`
+            bingeGroup: `autostream|${type}|${id}`,
+            filename:
+              ranked[0]?.behaviorHints?.filename ||
+              ranked[0]?.title ||
+              `${id}.mp4`
           }
         }
       ];
@@ -99,6 +110,10 @@ export async function getStreams(
       settings.fallback
     );
 
+    for (const attempt of fallback.attempts) {
+      recordStreamOutcome(attempt.infoHash, attempt.success);
+    }
+
     if (fallback.stream) {
       stream = fallback.stream;
     } else {
@@ -110,7 +125,9 @@ export async function getStreams(
 
   return [
     {
-      ...stream,
+      ...Object.fromEntries(
+        Object.entries(stream).filter(([key]) => !key.startsWith("_autostream"))
+      ),
 
       // What the user sees in Stremio
       name: getProfileName(settings.profile),

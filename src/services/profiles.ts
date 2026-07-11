@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 import { getSettings, normalizeSettings } from "./settings";
+import { getAddons } from "./addons";
 
 const profilesFile = path.join(process.cwd(), "data/profiles.json");
 
@@ -42,6 +43,17 @@ function normalizeProfile(profile: any): AutoStreamProfile {
   settings.playbackMethod =
     settings.playbackMethod === "http" ? "http" : "torrent";
   settings.midstream.enabled = settings.playbackMethod === "http";
+  if (settings.addonSelectionConfigured) {
+    const addons = getAddons();
+    settings.addonIds = settings.addonIds
+      .map((value: string) => {
+        const addon = addons.find(
+          (item: any) => item.instanceId === value || item.id === value
+        );
+        return addon?.instanceId || value;
+      })
+      .filter((value: string, index: number, values: string[]) => values.indexOf(value) === index);
+  }
 
   return {
     id: String(profile?.id || crypto.randomUUID()),

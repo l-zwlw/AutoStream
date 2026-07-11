@@ -26,6 +26,9 @@ jobs:
           - component: qbittorrent
             dockerfile: docker/qbittorrent/Dockerfile
             image: autostream-qbittorrent
+          - component: stream-engine
+            dockerfile: docker/stream-engine/Dockerfile
+            image: autostream-stream-engine
 
     steps:
       - name: Checkout repository

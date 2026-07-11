@@ -5,6 +5,27 @@ const settingsFile = path.join(process.cwd(), "data/settings.json");
 
 const defaultSettings = {
   playbackMethod: "torrent",
+  addonIds: [] as string[],
+  addonSelectionConfigured: false,
+  addonPriorities: {} as Record<string, number>,
+  device: {
+    preset: "automatic",
+    supports4k: true,
+    supportsHdr: true,
+    supportsDolbyVision: true,
+    supportsHevc: true,
+    supportsAv1: true
+  },
+  rules: {
+    minimumQuality: "720p",
+    maximumQuality: "4k",
+    maximumSizeGb: 0,
+    minimumSeeders: 0,
+    preferredLanguage: "",
+    allowRemux: true,
+    preferHdr: false,
+    preferredCodec: "automatic"
+  },
   profile: "balanced",
   fallback: {
     enabled: true,
@@ -39,6 +60,24 @@ export function normalizeSettings(settings: any) {
     ...defaultSettings,
     ...settings,
     playbackMethod: settings.playbackMethod === "http" ? "http" : "torrent",
+    addonIds: Array.isArray(settings.addonIds)
+      ? settings.addonIds.filter((value: unknown) => typeof value === "string")
+      : [],
+    addonSelectionConfigured: settings.addonSelectionConfigured === true,
+    addonPriorities:
+      settings.addonPriorities && typeof settings.addonPriorities === "object"
+        ? settings.addonPriorities
+        : {},
+    device: {
+      ...defaultSettings.device,
+      ...(settings.device || {})
+    },
+    rules: {
+      ...defaultSettings.rules,
+      ...(settings.rules || {}),
+      maximumSizeGb: clamp(settings.rules?.maximumSizeGb, 0, 500, 0),
+      minimumSeeders: clamp(settings.rules?.minimumSeeders, 0, 10000, 0)
+    },
     fallback: {
       enabled: settings.fallback?.enabled !== false,
       candidateTimeoutSeconds: clamp(

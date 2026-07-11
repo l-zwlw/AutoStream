@@ -76,7 +76,7 @@ Same timestamp is generated from candidate 2
 
 Each playback request gets its own session URL. Sessions for the same content share the torrent and generated-segment cache, allowing multiple devices to watch or seek independently without duplicating work.
 
-## ZimaOS installation
+## Installation
 
 Create a custom app and paste the contents of [`docker-compose.yml`](docker-compose.yml). It is a normal Compose stack with three services, deliberately ordered with AutoStream first, followed by its qBittorrent and streaming-engine sidecars.
 

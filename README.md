@@ -83,7 +83,7 @@ Create a custom app and paste the contents of [`docker-compose.yml`](docker-comp
 After the stack starts, open:
 
 ```text
-http://YOUR-ZIMAOS-IP:7001
+http://YOUR-IP:7001
 ```
 
 On first visit, create the dashboard password. Then open **Profiles**, create a profile for each viewer, configure it under **Settings**, and install its personal manifest URL in Stremio.

@@ -1,6 +1,6 @@
 services:
   autostream:
-    build: .
+    image: ghcr.io/l-zwlw/autostream:1.1.0
     container_name: autostream
     ports:
       - "7001:7001"
@@ -18,10 +18,7 @@ services:
     restart: unless-stopped
 
   qbittorrent:
-    build:
-      context: .
-      dockerfile: docker/qbittorrent/Dockerfile
-    image: autostream-qbittorrent:local
+    image: ghcr.io/l-zwlw/autostream-qbittorrent:1.1.0
     container_name: autostream-qbittorrent
     environment:
       PUID: "1000"

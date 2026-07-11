@@ -1,6 +1,6 @@
 services:
   autostream:
-    build: .
+    image: ghcr.io/l-zwlw/autostream:nightly
     container_name: autostream
     ports:
       - "7001:7001"
@@ -8,8 +8,6 @@ services:
       PORT: "7001"
       QBITTORRENT_URL: "http://qbittorrent:7002"
       DOWNLOADS_PATH: "/downloads"
-      AUTOSTREAM_ADMIN_PASSWORD: "${AUTOSTREAM_ADMIN_PASSWORD:-}"
-      ENABLE_EXPERIMENTAL_HTTP: "false"
     volumes:
       - ./data:/app/data
       - ./downloads:/downloads
@@ -18,10 +16,7 @@ services:
     restart: unless-stopped
 
   qbittorrent:
-    build:
-      context: .
-      dockerfile: docker/qbittorrent/Dockerfile
-    image: autostream-qbittorrent:local
+    image: ghcr.io/l-zwlw/autostream-qbittorrent:nightly
     container_name: autostream-qbittorrent
     environment:
       PUID: "1000"

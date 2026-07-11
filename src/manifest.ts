@@ -1,6 +1,8 @@
+import { APP_VERSION } from "./version";
+
 export const manifest = {
   id: "com.autostream.addon",
-  version: "1.0.0",
+  version: APP_VERSION,
   name: "AutoStream",
   description: "One stream. No choosing. Smart automatic stream selection.",
   resources: [

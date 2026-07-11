@@ -163,7 +163,7 @@ function getDebridScore(text: string) {
   return score;
 }
 
-export function pickBestStream(streams: any[], settings: Settings = {}) {
+export function rankStreams(streams: any[], settings: Settings = {}) {
   if (!streams.length) {
     return [];
   }
@@ -231,8 +231,17 @@ export function pickBestStream(streams: any[], settings: Settings = {}) {
   }
 
   console.log("Profile:", effectiveProfile);
-  console.log("Selected stream:", scored[0].stream.title);
-  console.log("Score:", scored[0].score);
+  return scored.map((item) => item.stream);
+}
 
-  return [scored[0].stream];
+export function pickBestStream(streams: any[], settings: Settings = {}) {
+  const ranked = rankStreams(streams, settings);
+
+  if (!ranked.length) {
+    return [];
+  }
+
+  console.log("Selected stream:", ranked[0].title);
+
+  return [ranked[0]];
 }

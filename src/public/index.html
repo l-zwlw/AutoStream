@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>AutoStream v1.0.0</title>
+  <title>AutoStream Nightly</title>
   <link rel="icon" type="image/png" href="/favicon.png" />
   <link rel="apple-touch-icon" href="/icon.png" />
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -176,7 +176,7 @@
     @keyframes fade { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 
     .grid { display: grid; gap: 18px; }
-    .grid-3 { grid-template-columns: repeat(3, minmax(0,1fr)); }
+    .grid-3 { grid-template-columns: repeat(auto-fit, minmax(210px,1fr)); }
     .grid-2 { grid-template-columns: 1fr 1fr; }
 
     .card {
@@ -288,8 +288,11 @@
     .field { display: grid; gap: 9px; margin-top: 18px; }
     .field label { font-size: 13px; color: var(--muted); font-weight: 750; }
     .hint { color: var(--muted-2); font-size: 12px; line-height: 1.45; }
+    .badge { display: inline-flex; align-items: center; margin-left: 8px; padding: 3px 8px; border: 1px solid rgba(120,87,255,.45); border-radius: 999px; color: #b8a9ff; font-size: 10px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; vertical-align: middle; }
     .debrid-panel { display: none; margin-top: 18px; padding-top: 18px; border-top: 1px solid var(--border); }
     .debrid-panel.visible { display: block; }
+    .check-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 18px; }
+    .check-row input { width: 20px; height: 20px; accent-color: var(--blue); }
 
     .empty { padding: 58px 24px; text-align: center; color: var(--muted); }
     .empty h3 { color: var(--text); font-size: 18px; margin-bottom: 8px; }
@@ -334,7 +337,7 @@
         <div id="logoFallback" class="brand-logo fallback" style="display:none; place-items:center;">▶</div>
         <div>
           <div class="brand-title">AutoStream</div>
-          <div class="brand-sub">v1.0.0 · Stable</div>
+          <div class="brand-sub" id="brandVersion">Loading version...</div>
         </div>
       </div>
 
@@ -347,6 +350,10 @@
         <button class="nav-btn" data-page="addons">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="18" height="18" rx="4"/><path d="M8 12h8M12 8v8"/></svg>
           Addons
+        </button>
+        <button class="nav-btn" data-page="profiles">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="9" cy="8" r="3"/><path d="M3 20c0-4 2-7 6-7s6 3 6 7"/><circle cx="17" cy="9" r="2"/><path d="M16 14c3 0 5 2 5 5"/></svg>
+          Profiles
         </button>
         <button class="nav-btn" data-page="settings">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 00.3 1.9l.1.1a2 2 0 11-2.9 2.9l-.1-.1a1.7 1.7 0 00-1.9-.3 1.7 1.7 0 00-1 1.6V21a2 2 0 11-4 0v-.1a1.7 1.7 0 00-1.1-1.6 1.7 1.7 0 00-1.9.3l-.1.1a2 2 0 11-2.9-2.9l.1-.1a1.7 1.7 0 00.3-1.9 1.7 1.7 0 00-1.6-1H3a2 2 0 110-4h.1a1.7 1.7 0 001.6-1 1.7 1.7 0 00-.3-1.9l-.1-.1a2 2 0 112.9-2.9l.1.1a1.7 1.7 0 001.9.3H9a1.7 1.7 0 001-1.6V3a2 2 0 114 0v.1a1.7 1.7 0 001 1.6 1.7 1.7 0 001.9-.3l.1-.1a2 2 0 112.9 2.9l-.1.1a1.7 1.7 0 00-.3 1.9V9a1.7 1.7 0 001.6 1H21a2 2 0 110 4h-.1a1.7 1.7 0 00-1.6 1z"/></svg>
@@ -376,6 +383,7 @@
         </div>
         <div class="top-actions">
           <button class="btn" id="refreshBtn">Refresh</button>
+          <button class="btn" id="logoutBtn">Log out</button>
         </div>
       </header>
 
@@ -408,6 +416,16 @@
               <div class="stat-value" id="profileValue">Balanced</div>
               <div class="stat-note">Used to choose the best stream.</div>
             </div>
+            <div class="card stat">
+              <div class="stat-label">Fallback engine</div>
+              <div class="stat-value" id="fallbackValue">Checking</div>
+              <div class="stat-note" id="fallbackNote">Connecting to qBittorrent.</div>
+            </div>
+            <div class="card stat">
+              <div class="stat-label">Streaming proxy</div>
+              <div class="stat-value" id="streamingValue">Disabled</div>
+              <div class="stat-note" id="streamingNote">Experimental mid-stream fallback is off.</div>
+            </div>
           </div>
         </div>
 
@@ -431,11 +449,49 @@
           </div>
         </div>
 
+        <div class="page" id="profiles">
+          <div class="section-head">
+            <div>
+              <h2>Profiles</h2>
+              <p>Give every viewer their own preferences and Stremio installation.</p>
+            </div>
+          </div>
+
+          <div class="card card-pad" style="margin-bottom:18px;">
+            <h2>Viewer profile</h2>
+            <p class="hint" style="margin-top:8px;">Each person gets their own settings and Stremio install URL. Addons and download cache remain shared.</p>
+            <div class="settings-grid">
+              <div class="field">
+                <label for="viewerProfileSelect">Profile</label>
+                <select class="select" id="viewerProfileSelect"></select>
+              </div>
+              <div class="field">
+                <label for="viewerProfileName">Name</label>
+                <input class="input" id="viewerProfileName" maxlength="40" placeholder="For example Lukas" />
+              </div>
+            </div>
+            <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:16px;">
+              <button class="btn" id="newProfileBtn">New profile</button>
+              <button class="btn" id="deleteProfileBtn">Delete profile</button>
+            </div>
+          </div>
+
+          <div class="card card-pad">
+            <h2>Install selected profile</h2>
+            <p class="hint" style="margin-top:8px;">Copy this link into Stremio. Each profile has its own permanent link.</p>
+            <div class="install-box" style="max-width:none;">
+              <div class="install-url" id="profileInstallUrl">Loading...</div>
+              <button class="btn btn-small btn-primary" id="copyProfileInstallBtn">Copy</button>
+            </div>
+            <button class="btn btn-primary" id="editProfileSettingsBtn" style="margin-top:16px;">Edit this profile's settings</button>
+          </div>
+        </div>
+
         <div class="page" id="settings">
           <div class="section-head">
             <div>
               <h2>Settings</h2>
-              <p>Configure how AutoStream chooses your one stream.</p>
+              <p>Configure the currently selected viewer profile.</p>
             </div>
           </div>
 
@@ -457,7 +513,7 @@
 
               <div class="debrid-panel" id="debridPanel">
                 <h2>Debrid</h2>
-                <p class="hint" style="margin-top:8px;">Debrid mode is saved here for v1.0. Resolver support can be added later.</p>
+                <p class="hint" style="margin-top:8px;">Use this profile with addons that already return cached debrid streams. AutoStream does not resolve debrid links itself yet.</p>
 
                 <div class="field">
                   <label for="debridProvider">Provider</label>
@@ -481,6 +537,71 @@
             </div>
 
             <div class="card card-pad">
+              <h2>Startup fallback</h2>
+              <p class="hint" style="margin-top:8px;">Test torrent candidates with qBittorrent before returning one stream to Stremio.</p>
+
+              <div class="check-row">
+                <div>
+                  <label for="fallbackEnabled">Automatic startup fallback</label>
+                  <p class="hint" style="margin-top:4px;">Disabled automatically for the Debrid profile.</p>
+                </div>
+                <input id="fallbackEnabled" type="checkbox" />
+              </div>
+
+              <div class="field">
+                <label for="fallbackTimeout">Seconds per candidate</label>
+                <input class="input" id="fallbackTimeout" type="number" min="3" max="8" step="1" />
+              </div>
+
+              <div class="field">
+                <label for="fallbackCandidates">Maximum candidates</label>
+                <input class="input" id="fallbackCandidates" type="number" min="1" max="10" step="1" />
+              </div>
+
+              <div class="field">
+                <label for="fallbackMinimumKb">Minimum verified download (KB)</label>
+                <input class="input" id="fallbackMinimumKb" type="number" min="64" max="4096" step="64" />
+              </div>
+            </div>
+
+            <div class="card card-pad">
+              <h2>Playback method</h2>
+              <p class="hint" style="margin-top:8px;">Choose a stable torrent handoff or the experimental HTTP proxy.</p>
+
+              <div class="field">
+                <label for="playbackMethod">Method</label>
+                <select class="select" id="playbackMethod">
+                  <option value="torrent">Torrent passthrough (recommended)</option>
+                  <option value="http" id="httpPlaybackOption" disabled>HTTP proxy (coming later)</option>
+                </select>
+              </div>
+
+              <div id="httpSettingsPanel">
+                <p class="hint">HTTP mode is under development. It will return after seeking and mid-stream fallback pass the full reliability test.</p>
+
+              <div class="field">
+                <label for="midstreamPrebuffer">Prebuffer before playback (MB)</label>
+                <input class="input" id="midstreamPrebuffer" type="number" min="4" max="256" step="4" />
+              </div>
+
+              <div class="field">
+                <label for="midstreamStallTimeout">Switch after no new segment (seconds)</label>
+                <input class="input" id="midstreamStallTimeout" type="number" min="10" max="120" step="1" />
+              </div>
+
+              <div class="field">
+                <label for="midstreamSegmentSeconds">HLS segment duration (seconds)</label>
+                <input class="input" id="midstreamSegmentSeconds" type="number" min="2" max="10" step="1" />
+              </div>
+
+              <div class="field">
+                <label for="midstreamRetentionHours">Keep paused sessions (hours)</label>
+                <input class="input" id="midstreamRetentionHours" type="number" min="1" max="72" step="1" />
+              </div>
+              </div>
+            </div>
+
+            <div class="card card-pad">
               <h2>Install in Stremio</h2>
               <p class="hint" style="margin-top:8px;">Copy this personal install URL and paste it into Stremio.</p>
               <div class="install-box" style="max-width:none;">
@@ -489,7 +610,7 @@
               </div>
               <div class="field">
                 <label>Version</label>
-                <input class="input" value="1.0.0 Stable" disabled />
+                <input class="input" id="versionValue" value="Loading..." disabled />
               </div>
             </div>
           </div>
@@ -519,11 +640,19 @@
     const API = {
       status: '/api/status',
       addons: '/api/addons',
-      settings: '/api/settings'
+      settings: '/api/settings',
+      profiles: '/api/profiles'
     };
 
     let addons = [];
-    let settings = { profile: 'balanced', debrid: { enabled: false, provider: '', apiKey: '' } };
+    let profiles = [];
+    let selectedProfileId = '';
+    let settings = {
+      profile: 'balanced',
+      fallback: { enabled: true, candidateTimeoutSeconds: 6, maximumCandidates: 3, minimumDownloadedKb: 256 },
+      midstream: { enabled: false, prebufferMb: 32, stallTimeoutSeconds: 30, segmentSeconds: 4, retentionHours: 12 },
+      debrid: { enabled: false, provider: '', apiKey: '' }
+    };
 
     const profileLabels = {
       balanced: 'Balanced',
@@ -549,7 +678,8 @@
     }
 
     function getInstallUrl() {
-      return `${window.location.origin}/manifest.json`;
+      const profile = profiles.find(item => item.id === selectedProfileId);
+      return profile?.installUrl || `${window.location.origin}/manifest.json`;
     }
 
     async function copyInstallUrl() {
@@ -561,6 +691,7 @@
       const url = getInstallUrl();
       document.getElementById('installUrl').textContent = url;
       document.getElementById('settingsInstallUrl').textContent = url;
+      document.getElementById('profileInstallUrl').textContent = url;
     }
 
     function initials(name) {
@@ -582,6 +713,22 @@
         document.getElementById('addonCount').textContent = data.addons ?? addons.length;
         document.getElementById('profileValue').textContent = profileLabels[data.profile] || data.profile || 'Balanced';
         document.getElementById('sidebarStatus').textContent = data.status === 'online' ? 'Server online' : 'Server offline';
+        const versionLabel = `v${data.version || 'unknown'} · ${data.releaseChannel || 'Unknown'}`;
+        document.getElementById('brandVersion').textContent = versionLabel;
+        document.getElementById('versionValue').value = versionLabel;
+        document.title = `AutoStream v${data.version || ''}`;
+        const fallbackOnline = data.fallbackEnabled && data.fallbackEngine?.online;
+        document.getElementById('fallbackValue').textContent = !data.fallbackEnabled ? 'Disabled' : fallbackOnline ? 'Ready' : 'Offline';
+        document.getElementById('fallbackNote').textContent = !data.fallbackEnabled
+          ? 'Startup fallback is turned off.'
+          : fallbackOnline
+            ? `qBittorrent ${data.fallbackEngine.version || ''} connected.`
+            : data.fallbackEngine?.error || 'qBittorrent is unavailable.';
+        document.getElementById('streamingValue').textContent = data.midstreamEnabled ? 'Active' : 'Disabled';
+        document.getElementById('streamingNote').textContent = data.midstreamEnabled
+          ? `${data.streamingSessions || 0} active or recent streaming session(s).`
+          : 'Experimental mid-stream fallback is off.';
+        document.getElementById('httpPlaybackOption').disabled = !data.httpStreamingAvailable;
       } catch {
         document.getElementById('statusValue').textContent = 'Offline';
         document.getElementById('sidebarStatus').textContent = 'Server offline';
@@ -589,26 +736,56 @@
     }
 
     async function loadSettings() {
-      const res = await fetch(API.settings);
-      settings = await res.json();
+      const profile = profiles.find(item => item.id === selectedProfileId);
+      if (!profile) return;
+      settings = profile.settings;
+      document.getElementById('viewerProfileName').value = profile.name;
       document.getElementById('profileSelect').value = settings.profile || 'balanced';
       document.getElementById('debridProvider').value = settings.debrid?.provider || '';
       document.getElementById('debridApiKey').value = settings.debrid?.apiKey || '';
+      document.getElementById('fallbackEnabled').checked = settings.fallback?.enabled !== false;
+      document.getElementById('fallbackTimeout').value = settings.fallback?.candidateTimeoutSeconds || 6;
+      document.getElementById('fallbackCandidates').value = settings.fallback?.maximumCandidates || 3;
+      document.getElementById('fallbackMinimumKb').value = settings.fallback?.minimumDownloadedKb || 256;
+      document.getElementById('playbackMethod').value = settings.playbackMethod || 'torrent';
+      document.getElementById('midstreamPrebuffer').value = settings.midstream?.prebufferMb || 32;
+      document.getElementById('midstreamStallTimeout').value = settings.midstream?.stallTimeoutSeconds || 30;
+      document.getElementById('midstreamSegmentSeconds').value = settings.midstream?.segmentSeconds || 4;
+      document.getElementById('midstreamRetentionHours').value = settings.midstream?.retentionHours || 12;
       updateDebridPanel();
+      updatePlaybackPanel();
+      setInstallUrls();
     }
 
     async function saveSettings() {
       const profile = document.getElementById('profileSelect').value;
       const body = {
+        name: document.getElementById('viewerProfileName').value,
+        settings: {
+        playbackMethod: document.getElementById('playbackMethod').value,
         profile,
+        fallback: {
+          enabled: document.getElementById('fallbackEnabled').checked,
+          candidateTimeoutSeconds: Number(document.getElementById('fallbackTimeout').value),
+          maximumCandidates: Number(document.getElementById('fallbackCandidates').value),
+          minimumDownloadedKb: Number(document.getElementById('fallbackMinimumKb').value)
+        },
+        midstream: {
+          enabled: document.getElementById('playbackMethod').value === 'http',
+          prebufferMb: Number(document.getElementById('midstreamPrebuffer').value),
+          stallTimeoutSeconds: Number(document.getElementById('midstreamStallTimeout').value),
+          segmentSeconds: Number(document.getElementById('midstreamSegmentSeconds').value),
+          retentionHours: Number(document.getElementById('midstreamRetentionHours').value)
+        },
         debrid: {
           enabled: profile === 'debrid',
           provider: document.getElementById('debridProvider').value,
           apiKey: document.getElementById('debridApiKey').value
         }
+        }
       };
 
-      const res = await fetch(API.settings, {
+      const res = await fetch(`${API.profiles}/${encodeURIComponent(selectedProfileId)}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body)
@@ -619,14 +796,61 @@
         return;
       }
 
-      settings = (await res.json()).settings;
-      toast('Saved', 'Settings updated.');
+      await loadProfiles(selectedProfileId);
+      toast('Saved', 'Profile settings updated.');
       await loadStatus();
     }
 
     function updateDebridPanel() {
       const profile = document.getElementById('profileSelect').value;
       document.getElementById('debridPanel').classList.toggle('visible', profile === 'debrid');
+    }
+
+    function updatePlaybackPanel() {
+      document.getElementById('httpSettingsPanel').style.display =
+        document.getElementById('playbackMethod').value === 'http' ? 'block' : 'none';
+    }
+
+    async function loadProfiles(preferredId) {
+      const res = await fetch(API.profiles);
+      profiles = await res.json();
+      selectedProfileId = profiles.some(item => item.id === preferredId)
+        ? preferredId
+        : profiles.some(item => item.id === selectedProfileId)
+          ? selectedProfileId
+          : profiles[0]?.id || '';
+      const select = document.getElementById('viewerProfileSelect');
+      select.innerHTML = profiles.map(item =>
+        `<option value="${escapeHtml(item.id)}">${escapeHtml(item.name)}</option>`
+      ).join('');
+      select.value = selectedProfileId;
+      document.getElementById('deleteProfileBtn').disabled = profiles.length <= 1;
+      await loadSettings();
+    }
+
+    async function createViewerProfile() {
+      const name = window.prompt('Name for the new profile:', 'New profile');
+      if (!name?.trim()) return;
+      const res = await fetch(API.profiles, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: name.trim() })
+      });
+      const data = await res.json();
+      if (!res.ok) return toast('Error', data.error || 'Could not create profile.');
+      await loadProfiles(data.profile.id);
+      toast('Profile created', `${data.profile.name} is ready to configure.`);
+    }
+
+    async function deleteViewerProfile() {
+      const profile = profiles.find(item => item.id === selectedProfileId);
+      if (!profile || profiles.length <= 1) return;
+      if (!window.confirm(`Delete profile “${profile.name}”?`)) return;
+      const res = await fetch(`${API.profiles}/${encodeURIComponent(profile.id)}`, { method: 'DELETE' });
+      if (!res.ok) return toast('Error', 'Could not delete profile.');
+      selectedProfileId = '';
+      await loadProfiles();
+      toast('Profile deleted', 'The other profiles were not changed.');
     }
 
     async function loadAddons() {
@@ -732,6 +956,7 @@
       const titles = {
         dashboard: ['Dashboard', 'Just Press Play.'],
         addons: ['Addons', 'Manage your stream sources.'],
+        profiles: ['Profiles', 'Personal settings for every viewer.'],
         settings: ['Settings', 'Configure AutoStream.']
       };
       document.getElementById('pageTitle').textContent = titles[page][0];
@@ -742,19 +967,31 @@
     document.querySelectorAll('.nav-btn').forEach(btn => btn.addEventListener('click', () => goTo(btn.dataset.page)));
     document.getElementById('hamburger').addEventListener('click', () => document.getElementById('sidebar').classList.toggle('open'));
     document.getElementById('refreshBtn').addEventListener('click', async () => { await init(); toast('Refreshed', 'AutoStream data updated.'); });
+    document.getElementById('logoutBtn').addEventListener('click', async () => {
+      await fetch('/api/auth/logout', { method: 'POST' });
+      window.location.replace('/login');
+    });
     document.getElementById('copyInstallBtn').addEventListener('click', copyInstallUrl);
     document.getElementById('copySettingsInstallBtn').addEventListener('click', copyInstallUrl);
+    document.getElementById('copyProfileInstallBtn').addEventListener('click', copyInstallUrl);
+    document.getElementById('editProfileSettingsBtn').addEventListener('click', () => goTo('settings'));
     document.getElementById('openModalBtn').addEventListener('click', openModal);
     document.getElementById('cancelModalBtn').addEventListener('click', closeModal);
     document.getElementById('modalBackdrop').addEventListener('click', e => { if (e.target.id === 'modalBackdrop') closeModal(); });
     document.getElementById('addAddonBtn').addEventListener('click', addAddon);
     document.getElementById('addonSearch').addEventListener('input', renderAddons);
     document.getElementById('profileSelect').addEventListener('change', updateDebridPanel);
+    document.getElementById('playbackMethod').addEventListener('change', updatePlaybackPanel);
+    document.getElementById('viewerProfileSelect').addEventListener('change', async event => {
+      selectedProfileId = event.target.value;
+      await loadSettings();
+    });
+    document.getElementById('newProfileBtn').addEventListener('click', createViewerProfile);
+    document.getElementById('deleteProfileBtn').addEventListener('click', deleteViewerProfile);
     document.getElementById('saveSettingsBtn').addEventListener('click', saveSettings);
 
     async function init() {
-      setInstallUrls();
-      await Promise.all([loadSettings(), loadAddons()]);
+      await Promise.all([loadProfiles(), loadAddons()]);
       await loadStatus();
     }
 

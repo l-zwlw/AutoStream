@@ -1,8 +1,22 @@
 {
   "profile": "balanced",
+  "fallback": {
+    "enabled": true,
+    "candidateTimeoutSeconds": 6,
+    "maximumCandidates": 3,
+    "minimumDownloadedKb": 256
+  },
+  "midstream": {
+    "enabled": false,
+    "prebufferMb": 4,
+    "stallTimeoutSeconds": 30,
+    "segmentSeconds": 4,
+    "retentionHours": 12
+  },
   "debrid": {
     "enabled": false,
     "provider": "",
     "apiKey": ""
-  }
+  },
+  "playbackMethod": "torrent"
 }

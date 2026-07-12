@@ -51,6 +51,10 @@ export function restoreBackup(backup: any) {
         debrid: {
           ...(restoredValue.debrid || {}),
           apiKey: current.debrid?.apiKey || ""
+        },
+        jackett: {
+          ...(restoredValue.jackett || {}),
+          apiKey: current.jackett?.apiKey || ""
         }
       };
     }
@@ -66,6 +70,10 @@ export function restoreBackup(backup: any) {
           debrid: {
             ...(profile.settings?.debrid || {}),
             apiKey: currentById.get(profile.id)?.settings?.debrid?.apiKey || ""
+          },
+          jackett: {
+            ...(profile.settings?.jackett || {}),
+            apiKey: currentById.get(profile.id)?.settings?.jackett?.apiKey || ""
           }
         }
       }));

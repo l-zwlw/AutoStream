@@ -138,6 +138,10 @@ export function updateProfile(id: string, patch: any) {
       debrid: {
         ...current.settings.debrid,
         ...(patch.settings?.debrid || {})
+      },
+      jackett: {
+        ...current.settings.jackett,
+        ...(patch.settings?.jackett || {})
       }
     }
   });

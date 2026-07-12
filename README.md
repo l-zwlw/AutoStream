@@ -41,6 +41,7 @@ The optional qBittorrent startup check verifies the exact requested movie or epi
 - Per-profile addon selection, device capabilities and stream rules
 - Addon health, reliability scoring and automatic temporary suppression
 - Backups, cache management and privacy-safe support reports
+- Optional Jackett tracker searches through the standard Torznab API
 
 ## How startup fallback works
 
@@ -87,6 +88,15 @@ http://YOUR-IP:7001
 ```
 
 On first visit, create the dashboard password. Then open **Profiles**, create a profile for each viewer, configure it under **Settings**, and install its personal manifest URL in Stremio.
+
+### Optional Jackett setup
+
+In your existing Jackett instance, add the public or private indexers you are
+allowed to use and copy its API key. In AutoStream, open the viewer profile
+under **Settings → Jackett torrent source**, enter the Jackett URL and API key,
+then enable Jackett. If Jackett runs separately on the same Docker host, use
+`http://host.docker.internal:9117`. A LAN URL or private HTTPS URL also works.
+Do not expose Jackett directly to the public internet.
 
 ### Update
 

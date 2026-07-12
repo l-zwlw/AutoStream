@@ -18,6 +18,8 @@ services:
     depends_on:
       - qbittorrent
       - stream-engine
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     restart: unless-stopped
 
   qbittorrent:

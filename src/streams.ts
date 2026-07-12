@@ -8,6 +8,7 @@ import {
 import { createVodSession } from "./services/vodStreaming";
 import { deduplicateStreams } from "./services/dedupe";
 import { recordStreamOutcome } from "./services/health";
+import { getJackettStreams } from "./providers/jackett";
 
 const experimentalHttpEnabled =
   process.env.ENABLE_EXPERIMENTAL_HTTP === "true";
@@ -41,14 +42,19 @@ export async function getStreams(
   profileSettings?: any
 ) {
   const settings = profileSettings || getSettings();
-  const streams = deduplicateStreams(
-    await getAddonStreams(
+  const [addonStreams, jackettStreams] = await Promise.all([
+    getAddonStreams(
       type,
       id,
       settings.addonIds,
       settings.addonSelectionConfigured
-    )
-  );
+    ),
+    getJackettStreams(type, id, settings.jackett).catch((error) => {
+      console.warn("Jackett search failed:", error instanceof Error ? error.message : error);
+      return [];
+    })
+  ]);
+  const streams = deduplicateStreams([...addonStreams, ...jackettStreams]);
 
   if (!streams.length) {
     return [];

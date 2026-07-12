@@ -53,6 +53,7 @@ import {
   clearAutoStreamTorrents,
   getAutoStreamTorrents
 } from "./services/qbittorrent";
+import { getJackettStatus } from "./providers/jackett";
 
 const app = express();
 const experimentalHttpEnabled =
@@ -207,6 +208,9 @@ app.get("/api/status", async (req, res) => {
   const settings = getSettings();
   const qbittorrent = await getQBittorrentStatus();
   const profiles = getProfiles();
+  const jackettSettings = profiles.find(
+    (profile) => profile.settings.jackett?.enabled
+  )?.settings.jackett || settings.jackett;
 
   res.json({
     status: "online",
@@ -226,6 +230,7 @@ app.get("/api/status", async (req, res) => {
     streamingSessions: getVodStatus().sessions,
     httpStreamingAvailable: experimentalHttpEnabled,
     streamEngine: await getStreamEngineStatus(),
+    jackett: await getJackettStatus(jackettSettings),
     fallbackEngine: qbittorrent
   });
 });
@@ -373,6 +378,10 @@ app.get("/api/profiles", (req, res) => {
         debrid: {
           ...profile.settings.debrid,
           apiKey: profile.settings.debrid?.apiKey ? "********" : ""
+        },
+        jackett: {
+          ...profile.settings.jackett,
+          apiKey: profile.settings.jackett?.apiKey ? "********" : ""
         }
       }
     }))
@@ -399,6 +408,9 @@ app.patch("/api/profiles/:profileId", (req, res) => {
   }
   if (patch.settings?.debrid?.apiKey === "********") {
     patch.settings.debrid.apiKey = current.settings.debrid?.apiKey || "";
+  }
+  if (patch.settings?.jackett?.apiKey === "********") {
+    patch.settings.jackett.apiKey = current.settings.jackett?.apiKey || "";
   }
   const profile = updateProfile(req.params.profileId, patch);
   res.json({ success: true, profile });

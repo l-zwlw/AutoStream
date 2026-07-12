@@ -438,6 +438,11 @@
               <div class="stat-value" id="streamingValue">Disabled</div>
               <div class="stat-note" id="streamingNote">Experimental mid-stream fallback is off.</div>
             </div>
+            <div class="card stat">
+              <div class="stat-label">Jackett source</div>
+              <div class="stat-value" id="jackettValue">Disabled</div>
+              <div class="stat-note" id="jackettNote">Optional tracker search is off.</div>
+            </div>
           </div>
         </div>
 
@@ -604,6 +609,16 @@
               <h2>Profile addons</h2>
               <p class="hint" style="margin-top:8px;">Leave every box checked to use all shared addons.</p>
               <div id="profileAddonList"></div>
+            </div>
+
+            <div class="card card-pad">
+              <h2>Jackett torrent source</h2>
+              <p class="hint" style="margin-top:8px;">Connect an existing Jackett instance and search the trackers configured there. Jackett is not bundled with AutoStream.</p>
+              <div class="check-row"><div><label for="jackettEnabled">Use Jackett</label><p class="hint" style="margin-top:4px;">Results join your normal addon results and use the same availability-first ranking.</p></div><input id="jackettEnabled" type="checkbox" /></div>
+              <div class="field"><label for="jackettUrl">Jackett URL</label><input class="input" id="jackettUrl" placeholder="http://host.docker.internal:9117" /><p class="hint">Use <code>host.docker.internal</code> when Jackett runs separately on the same Docker host, or enter its LAN URL.</p></div>
+              <div class="field"><label for="jackettApiKey">Jackett API key</label><input class="input" id="jackettApiKey" type="password" placeholder="Paste the API key from Jackett" /></div>
+              <div class="field"><label for="jackettIndexer">Indexer or filter</label><input class="input" id="jackettIndexer" value="all" placeholder="all" /><p class="hint">Use “all”, an indexer ID, or a Jackett filter such as <code>status:healthy</code>.</p></div>
+              <a class="btn" id="openJackettBtn" href="http://localhost:9117" target="_blank" rel="noreferrer" style="margin-top:18px;">Open Jackett</a>
             </div>
 
             <div class="card card-pad">
@@ -788,6 +803,13 @@
         document.getElementById('streamingNote').textContent = data.midstreamEnabled
           ? `${data.streamingSessions || 0} active or recent streaming session(s).`
           : 'Experimental mid-stream fallback is off.';
+        const jackett = data.jackett || {};
+        document.getElementById('jackettValue').textContent = !jackett.enabled ? 'Disabled' : jackett.online ? 'Ready' : 'Setup';
+        document.getElementById('jackettNote').textContent = !jackett.enabled
+          ? 'Optional tracker search is off.'
+          : jackett.online
+            ? 'Jackett is connected.'
+            : jackett.error || 'Add indexers and an API key.';
         document.getElementById('httpPlaybackOption').disabled = !data.httpStreamingAvailable;
       } catch {
         document.getElementById('statusValue').textContent = 'Offline';
@@ -824,6 +846,12 @@
       document.getElementById('preferredCodec').value = settings.rules?.preferredCodec || 'automatic';
       document.getElementById('allowRemux').checked = settings.rules?.allowRemux !== false;
       document.getElementById('preferHdr').checked = settings.rules?.preferHdr === true;
+      document.getElementById('jackettEnabled').checked = settings.jackett?.enabled === true;
+      document.getElementById('jackettUrl').value = settings.jackett?.url || '';
+      document.getElementById('jackettApiKey').value = settings.jackett?.apiKey || '';
+      document.getElementById('jackettIndexer').value = settings.jackett?.indexer || 'all';
+      const jackettUrl = settings.jackett?.url || '';
+      document.getElementById('openJackettBtn').href = jackettUrl.replace('host.docker.internal', window.location.hostname) || '#';
       renderProfileAddons();
       updateDebridPanel();
       updatePlaybackPanel();
@@ -879,6 +907,12 @@
           enabled: profile === 'debrid',
           provider: document.getElementById('debridProvider').value,
           apiKey: document.getElementById('debridApiKey').value
+        },
+        jackett: {
+          enabled: document.getElementById('jackettEnabled').checked,
+          url: document.getElementById('jackettUrl').value.trim(),
+          apiKey: document.getElementById('jackettApiKey').value,
+          indexer: document.getElementById('jackettIndexer').value.trim() || 'all'
         }
         }
       };

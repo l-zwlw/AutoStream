@@ -14,12 +14,15 @@
   "type": "module",
   "dependencies": {
     "cors": "^2.8.6",
-    "express": "^5.2.1"
+    "express": "^5.2.1",
+    "fast-xml-parser": "^5.10.0",
+    "parse-torrent": "^11.0.21"
   },
   "devDependencies": {
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
     "@types/node": "^26.1.1",
+    "@types/parse-torrent": "^5.8.8",
     "tsx": "^4.23.0",
     "typescript": "^6.0.3"
   }

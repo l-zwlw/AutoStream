@@ -38,6 +38,15 @@ AutoStream references this independently distributed container image in its Dock
 
 The derived sidecar image retains the upstream licensing requirements and is labelled `GPL-3.0-or-later`. AutoStream's TypeScript application remains a separate MIT-licensed service.
 
+## Jackett
+
+- Project: <https://github.com/Jackett/Jackett>
+- License: GNU General Public License v2.0
+- Container: <https://docs.linuxserver.io/images/docker-jackett/>
+
+AutoStream can optionally connect to a user-managed Jackett instance through
+its Torznab API. Jackett is not bundled with or redistributed by AutoStream.
+
 ## Express, cors, TypeScript, and tsx
 
 JavaScript dependencies and their licenses are listed in `package-lock.json` and their respective package distributions.

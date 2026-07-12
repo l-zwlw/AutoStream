@@ -44,6 +44,12 @@ const defaultSettings = {
     enabled: false,
     provider: "",
     apiKey: ""
+  },
+  jackett: {
+    enabled: false,
+    url: "",
+    apiKey: "",
+    indexer: "all"
   }
 };
 
@@ -53,6 +59,18 @@ function clamp(value: unknown, minimum: number, maximum: number, fallback: numbe
   if (!Number.isFinite(number)) return fallback;
 
   return Math.min(Math.max(Math.round(number), minimum), maximum);
+}
+
+function httpUrl(value: unknown) {
+  if (typeof value !== "string" || !value.trim()) return "";
+  try {
+    const url = new URL(value.trim());
+    return ["http:", "https:"].includes(url.protocol)
+      ? url.toString().replace(/\/$/, "")
+      : "";
+  } catch {
+    return "";
+  }
 }
 
 export function normalizeSettings(settings: any) {
@@ -129,6 +147,12 @@ export function normalizeSettings(settings: any) {
     debrid: {
       ...defaultSettings.debrid,
       ...(settings.debrid || {})
+    },
+    jackett: {
+      ...defaultSettings.jackett,
+      ...(settings.jackett || {}),
+      enabled: settings.jackett?.enabled === true,
+      url: httpUrl(settings.jackett?.url)
     }
   };
 }

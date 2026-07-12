@@ -131,7 +131,7 @@ function getQualityScore(text: string, profile: string) {
 }
 
 function getSizeScore(sizeGb: number, profile: string) {
-  if (!sizeGb) return 0;
+  if (!sizeGb) return profile === "debrid" ? 0 : -40;
 
   if (profile === "debrid") {
     if (sizeGb <= 8) return 5;
@@ -147,38 +147,38 @@ function getSizeScore(sizeGb: number, profile: string) {
   }
 
   if (profile === "mobile") {
-    if (sizeGb <= 2) return 50;
-    if (sizeGb <= 4) return 35;
-    if (sizeGb <= 8) return 10;
-    if (sizeGb <= 15) return -20;
-    return -60;
+    if (sizeGb <= 1.5) return 200;
+    if (sizeGb <= 3) return 170;
+    if (sizeGb <= 6) return 100;
+    if (sizeGb <= 10) return 20;
+    if (sizeGb <= 20) return -120;
+    return -300;
   }
 
   if (profile === "fastest") {
-    if (sizeGb <= 2) return 60;
-    if (sizeGb <= 5) return 45;
-    if (sizeGb <= 10) return 15;
-    if (sizeGb <= 20) return -20;
-    return -70;
+    if (sizeGb <= 1.5) return 220;
+    if (sizeGb <= 3) return 190;
+    if (sizeGb <= 6) return 120;
+    if (sizeGb <= 10) return 40;
+    if (sizeGb <= 20) return -100;
+    return -320;
   }
 
-  if (sizeGb <= 3) return 35;
-  if (sizeGb <= 8) return 30;
-  if (sizeGb <= 15) return 15;
-  if (sizeGb <= 25) return -5;
-  if (sizeGb <= 40) return -25;
-  return -55;
+  if (sizeGb <= 1.5) return 180;
+  if (sizeGb <= 3) return 160;
+  if (sizeGb <= 6) return 110;
+  if (sizeGb <= 10) return 60;
+  if (sizeGb <= 20) return -20;
+  if (sizeGb <= 40) return -140;
+  return -300;
 }
 
 function getSeederScore(seeders: number, profile: string) {
   if (!seeders) return 0;
 
   if (profile === "debrid") return Math.min(seeders, 25);
-  if (profile === "fastest") return Math.min(seeders * 1.5, 120);
-  if (profile === "mobile") return Math.min(seeders, 90);
-  if (profile === "homeTheater") return Math.min(seeders, 60);
-
-  return Math.min(seeders, 90);
+  const weight = profile === "homeTheater" ? 95 : profile === "fastest" ? 155 : 135;
+  return Math.log2(seeders + 1) * weight;
 }
 
 function getDebridScore(text: string) {
@@ -247,6 +247,9 @@ export function rankStreams(streams: any[], settings: Settings = {}) {
       score += getQualityScore(text, effectiveProfile);
       score += getSizeScore(sizeGb, effectiveProfile);
       score += getSeederScore(seeders, effectiveProfile);
+      if (stream.infoHash && seeders === 0 && effectiveProfile !== "debrid") {
+        score -= 180;
+      }
       score += getAddonReliability(stream._autostreamAddonId) * 30;
       score += getStreamReliability(stream.infoHash) * 30;
       score += Number(settings.addonPriorities?.[stream._autostreamAddonId] || 0) * 10;

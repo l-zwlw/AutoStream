@@ -94,8 +94,6 @@ function delay(milliseconds: number) {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
-const startupFallbackBudgetMs = 6_000;
-
 async function apiRequest(path: string, init?: RequestInit) {
   return fetch(`${qbittorrentUrl}${path}`, {
     ...init,
@@ -532,6 +530,10 @@ export async function selectFirstPlayableTorrent(
   fallbackOptions: FallbackOptions = {}
 ): Promise<FallbackSelection> {
   const options = normalizeFallbackOptions(fallbackOptions);
+  const startupFallbackBudgetMs = Math.min(
+    30_000,
+    options.candidateTimeoutMs * options.maximumCandidates
+  );
   const deadline = Date.now() + startupFallbackBudgetMs;
   const attempts: FallbackAttempt[] = [];
   const candidates = rankedStreams

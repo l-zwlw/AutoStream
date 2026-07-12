@@ -30,7 +30,7 @@ const defaultSettings = {
   fallback: {
     enabled: true,
     candidateTimeoutSeconds: 6,
-    maximumCandidates: 3,
+    maximumCandidates: 5,
     minimumDownloadedKb: 256
   },
   midstream: {

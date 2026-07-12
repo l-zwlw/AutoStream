@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version" src="https://img.shields.io/badge/stable-1.2.1-4dff9f" />
+  <img alt="Version" src="https://img.shields.io/badge/stable-1.2.2-4dff9f" />
   <img alt="Docker" src="https://img.shields.io/badge/Docker-GHCR-2496ed" />
   <img alt="License" src="https://img.shields.io/badge/license-MIT-4dff9f" />
 </p>

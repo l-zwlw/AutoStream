@@ -51,6 +51,12 @@ function exactEpisode(title: string, season?: number, episode?: number) {
   return title.toLowerCase().includes(token);
 }
 
+function matchesTitle(title: string, requiredTitle?: string) {
+  if (!requiredTitle) return true;
+  const normalize = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, "");
+  return normalize(title).includes(normalize(requiredTitle));
+}
+
 async function torrentIdentity(item: any) {
   const magnet = String(attribute(item, "magneturl") || "");
   const directHash = String(attribute(item, "infohash") || "").toLowerCase();
@@ -85,18 +91,62 @@ export async function getJackettStreams(type: string, id: string, settings: Jack
   const episode = Number(episodeText) || undefined;
   const baseUrl = safeBaseUrl(settings.url);
   const indexer = encodeURIComponent(settings.indexer?.trim() || "all");
-  const query = new URL(`${baseUrl}/api/v2.0/indexers/${indexer}/results/torznab/api`);
-  query.searchParams.set("apikey", settings.apiKey);
-  query.searchParams.set("t", type === "series" ? "tvsearch" : "movie");
-  query.searchParams.set("imdbid", imdbId!);
-  if (season) query.searchParams.set("season", String(season));
-  if (episode) query.searchParams.set("ep", String(episode));
+  const endpoint = `${baseUrl}/api/v2.0/indexers/${indexer}/results/torznab/api`;
+  const search = async (params: Record<string, string>) => {
+    const query = new URL(endpoint);
+    query.searchParams.set("apikey", settings.apiKey!);
+    for (const [name, value] of Object.entries(params)) query.searchParams.set(name, value);
+    const response = await fetch(query, { signal: AbortSignal.timeout(20_000) });
+    if (!response.ok) throw new Error(`Jackett returned HTTP ${response.status}`);
+    const document: any = parser.parse(await response.text());
+    return list(document?.rss?.channel?.item);
+  };
 
-  const response = await fetch(query, { signal: AbortSignal.timeout(20_000) });
-  if (!response.ok) throw new Error(`Jackett returned HTTP ${response.status}`);
-  const document: any = parser.parse(await response.text());
-  const items = list(document?.rss?.channel?.item)
-    .filter((item: any) => exactEpisode(String(item?.title || ""), season, episode))
+  let items: any[] = [];
+  let requiredTitle = "";
+  try {
+    items = await search({
+      t: type === "series" ? "tvsearch" : "movie",
+      imdbid: imdbId!,
+      ...(season ? { season: String(season) } : {}),
+      ...(episode ? { ep: String(episode) } : {})
+    });
+  } catch {
+    // Many Jackett indexers only support text search. The fallback below
+    // resolves the title and retries without relying on IMDb support.
+  }
+
+  if (items.length === 0) {
+    const metadataResponse = await fetch(
+      `https://v3-cinemeta.strem.io/meta/${type}/${imdbId}.json`,
+      { signal: AbortSignal.timeout(8_000) }
+    );
+    if (metadataResponse.ok) {
+      const metadata: any = await metadataResponse.json();
+      const name = String(metadata?.meta?.name || "")
+        .replace(/:/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+      if (name) {
+        requiredTitle = name;
+        const episodeToken = season && episode
+          ? ` S${String(season).padStart(2, "0")}E${String(episode).padStart(2, "0")}`
+          : "";
+        items = await search({
+          t: type === "series" ? "tvsearch" : "search",
+          q: `${name}${episodeToken}`,
+          ...(season ? { season: String(season) } : {}),
+          ...(episode ? { ep: String(episode) } : {})
+        });
+      }
+    }
+  }
+
+  items = items
+    .filter((item: any) => {
+      const title = String(item?.title || "");
+      return exactEpisode(title, season, episode) && matchesTitle(title, requiredTitle);
+    })
     .slice(0, 30);
   const resolved = await Promise.all(items.map(async (item: any) => {
     try {

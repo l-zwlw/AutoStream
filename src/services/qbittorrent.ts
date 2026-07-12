@@ -530,57 +530,50 @@ export async function selectFirstPlayableTorrent(
   fallbackOptions: FallbackOptions = {}
 ): Promise<FallbackSelection> {
   const options = normalizeFallbackOptions(fallbackOptions);
-  const startupFallbackBudgetMs = Math.min(
-    30_000,
-    options.candidateTimeoutMs * options.maximumCandidates
-  );
-  const deadline = Date.now() + startupFallbackBudgetMs;
-  const attempts: FallbackAttempt[] = [];
   const candidates = rankedStreams
     .filter((stream) =>
       typeof stream.infoHash === "string" &&
       /^[a-fA-F0-9]{40}$/.test(stream.infoHash)
     )
     .slice(0, options.maximumCandidates);
-
-  for (const candidate of candidates) {
-    if (Date.now() >= deadline) break;
+  const deadline = Date.now() + options.candidateTimeoutMs;
+  const tested = await Promise.all(candidates.map(async (candidate) => {
     const infoHash = candidate.infoHash!.toLowerCase();
-
     try {
       const result = await testCandidate(candidate, options, deadline);
-
-      attempts.push({
-        infoHash,
-        title: candidate.title || infoHash,
-        success: result.success,
-        reason: result.reason
-      });
-
       console.log(
         `Fallback candidate ${result.success ? "accepted" : "rejected"}:`,
         candidate.title || infoHash,
         `(${result.reason})`
       );
-
-      if (result.success) {
-        return {
-          stream: candidate,
-          attempts
-        };
-      }
+      return {
+        candidate,
+        attempt: {
+          infoHash,
+          title: candidate.title || infoHash,
+          success: result.success,
+          reason: result.reason
+        } satisfies FallbackAttempt
+      };
     } catch (error) {
       const reason = error instanceof Error ? error.message : "Unknown error";
-
-      attempts.push({
-        infoHash,
-        title: candidate.title || infoHash,
-        success: false,
-        reason
-      });
-
       console.warn("Fallback candidate failed:", reason);
+      return {
+        candidate,
+        attempt: {
+          infoHash,
+          title: candidate.title || infoHash,
+          success: false,
+          reason
+        } satisfies FallbackAttempt
+      };
     }
+  }));
+  const attempts = tested.map(({ attempt }) => attempt);
+  const playable = tested.find(({ attempt }) => attempt.success);
+
+  if (playable) {
+    return { stream: playable.candidate, attempts };
   }
 
   return {

@@ -139,7 +139,7 @@ function matchesAudioRules(text: string, rules: Record<string, any>) {
   const detected = detectedAudioLanguages(text);
   if (!detected.length) {
     if (/\bdubbed\b|\bdub\b/i.test(normalizedReleaseText(text))) return false;
-    return rules.allowUnlabelledAudio !== false;
+    return true;
   }
   return detected.some((language) => allowed.includes(language));
 }

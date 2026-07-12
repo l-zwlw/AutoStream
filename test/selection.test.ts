@@ -114,8 +114,7 @@ test("filters explicitly labelled foreign-only audio while allowing unlabelled o
     rules: {
       minimumQuality: "720p",
       maximumQuality: "4k",
-      allowedAudioLanguages: ["english"],
-      allowUnlabelledAudio: true
+      allowedAudioLanguages: ["english"]
     }
   });
 
@@ -130,8 +129,7 @@ test("accepts multi-audio releases when one allowed language is present", () => 
     rules: {
       minimumQuality: "720p",
       maximumQuality: "4k",
-      allowedAudioLanguages: ["english"],
-      allowUnlabelledAudio: false
+      allowedAudioLanguages: ["english"]
     }
   });
 
@@ -147,8 +145,7 @@ test("applies the audio allowlist to languages other than Polish", () => {
     rules: {
       minimumQuality: "720p",
       maximumQuality: "4k",
-      allowedAudioLanguages: ["english"],
-      allowUnlabelledAudio: true
+      allowedAudioLanguages: ["english"]
     }
   });
 
@@ -163,8 +160,7 @@ test("rejects an unlabelled dubbed release when a language allowlist is active",
     rules: {
       minimumQuality: "720p",
       maximumQuality: "4k",
-      allowedAudioLanguages: ["english"],
-      allowUnlabelledAudio: true
+      allowedAudioLanguages: ["english"]
     }
   });
 

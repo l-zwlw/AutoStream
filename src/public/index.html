@@ -599,7 +599,28 @@
               <div class="field"><label for="maximumQuality">Maximum quality</label><select class="select" id="maximumQuality"><option value="720p">720p</option><option value="1080p">1080p</option><option value="4k">4K</option></select></div>
               <div class="field"><label for="maximumSizeGb">Maximum size in GB (0 = unlimited)</label><input class="input" id="maximumSizeGb" type="number" min="0" max="500" /></div>
               <div class="field"><label for="minimumSeeders">Minimum seeders</label><input class="input" id="minimumSeeders" type="number" min="0" max="10000" /></div>
-              <div class="field"><label for="preferredLanguage">Required language (optional)</label><input class="input" id="preferredLanguage" placeholder="English" /></div>
+              <div class="field">
+                <label for="allowedAudioLanguages">Allowed audio languages</label>
+                <select class="select" id="allowedAudioLanguages" multiple size="6">
+                  <option value="english">English</option><option value="dutch">Dutch</option>
+                  <option value="german">German</option><option value="french">French</option>
+                  <option value="spanish">Spanish</option><option value="italian">Italian</option>
+                  <option value="polish">Polish</option><option value="portuguese">Portuguese</option>
+                  <option value="japanese">Japanese</option><option value="korean">Korean</option>
+                  <option value="chinese">Chinese / Mandarin</option><option value="russian">Russian</option>
+                  <option value="ukrainian">Ukrainian</option><option value="czech">Czech</option>
+                  <option value="hungarian">Hungarian</option><option value="turkish">Turkish</option>
+                  <option value="arabic">Arabic</option><option value="hindi">Hindi</option>
+                  <option value="swedish">Swedish</option><option value="norwegian">Norwegian</option>
+                  <option value="danish">Danish</option><option value="finnish">Finnish</option>
+                  <option value="greek">Greek</option><option value="hebrew">Hebrew</option>
+                  <option value="thai">Thai</option><option value="indonesian">Indonesian</option>
+                  <option value="romanian">Romanian</option><option value="bulgarian">Bulgarian</option>
+                  <option value="vietnamese">Vietnamese</option>
+                </select>
+                <p class="hint">Select one or more languages. Every explicitly recognised language not selected here is excluded.</p>
+              </div>
+              <div class="check-row"><div><label for="allowUnlabelledAudio">Allow unlabelled/original audio</label><p class="hint" style="margin-top:4px;">Most original-language releases do not include an audio label in their filename.</p></div><input id="allowUnlabelledAudio" type="checkbox" /></div>
               <div class="field"><label for="preferredCodec">Preferred codec</label><select class="select" id="preferredCodec"><option value="automatic">Automatic</option><option value="h264">H.264</option><option value="hevc">HEVC</option><option value="av1">AV1</option></select></div>
               <div class="check-row"><label for="allowRemux">Allow REMUX</label><input id="allowRemux" type="checkbox" /></div>
               <div class="check-row"><label for="preferHdr">Prefer HDR</label><input id="preferHdr" type="checkbox" /></div>
@@ -842,7 +863,9 @@
       document.getElementById('maximumQuality').value = settings.rules?.maximumQuality || '4k';
       document.getElementById('maximumSizeGb').value = settings.rules?.maximumSizeGb || 0;
       document.getElementById('minimumSeeders').value = settings.rules?.minimumSeeders || 0;
-      document.getElementById('preferredLanguage').value = settings.rules?.preferredLanguage || '';
+      const allowedAudioLanguages = settings.rules?.allowedAudioLanguages || (settings.rules?.preferredLanguage ? [settings.rules.preferredLanguage.toLowerCase()] : ['english']);
+      for (const option of document.getElementById('allowedAudioLanguages').options) option.selected = allowedAudioLanguages.includes(option.value);
+      document.getElementById('allowUnlabelledAudio').checked = settings.rules?.allowUnlabelledAudio !== false;
       document.getElementById('preferredCodec').value = settings.rules?.preferredCodec || 'automatic';
       document.getElementById('allowRemux').checked = settings.rules?.allowRemux !== false;
       document.getElementById('preferHdr').checked = settings.rules?.preferHdr === true;
@@ -885,7 +908,8 @@
           maximumQuality: document.getElementById('maximumQuality').value,
           maximumSizeGb: Number(document.getElementById('maximumSizeGb').value),
           minimumSeeders: Number(document.getElementById('minimumSeeders').value),
-          preferredLanguage: document.getElementById('preferredLanguage').value.trim(),
+          allowedAudioLanguages: Array.from(document.getElementById('allowedAudioLanguages').selectedOptions).map(option => option.value),
+          allowUnlabelledAudio: document.getElementById('allowUnlabelledAudio').checked,
           preferredCodec: document.getElementById('preferredCodec').value,
           allowRemux: document.getElementById('allowRemux').checked,
           preferHdr: document.getElementById('preferHdr').checked

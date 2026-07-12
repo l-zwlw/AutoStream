@@ -105,3 +105,68 @@ test("seed availability outweighs premium format bonuses", () => {
   });
   assert.match(ranked[0].title, /720p/);
 });
+
+test("filters explicitly labelled foreign-only audio while allowing unlabelled original audio", () => {
+  const ranked = rankStreams([
+    { title: "Scorpion.S01E01.1080p.WEB-DL.POLISH.LEKTOR 👤 80 💾 2 GB" },
+    { title: "Scorpion.S01E01.720p.WEB-DL.x264 👤 30 💾 1 GB" }
+  ], {
+    rules: {
+      minimumQuality: "720p",
+      maximumQuality: "4k",
+      allowedAudioLanguages: ["english"],
+      allowUnlabelledAudio: true
+    }
+  });
+
+  assert.equal(ranked.length, 1);
+  assert.match(ranked[0].title, /720p/);
+});
+
+test("accepts multi-audio releases when one allowed language is present", () => {
+  const ranked = rankStreams([
+    { title: "Scorpion.S01E01.1080p.MULTI.POLISH.ENGLISH 👤 20 💾 2 GB" }
+  ], {
+    rules: {
+      minimumQuality: "720p",
+      maximumQuality: "4k",
+      allowedAudioLanguages: ["english"],
+      allowUnlabelledAudio: false
+    }
+  });
+
+  assert.equal(ranked.length, 1);
+});
+
+test("applies the audio allowlist to languages other than Polish", () => {
+  const ranked = rankStreams([
+    { title: "Scorpion.S01E01.1080p.WEB-DL.GERMAN 👤 50 💾 2 GB" },
+    { title: "Scorpion.S01E01.1080p.WEB-DL.RUSSIAN 👤 40 💾 2 GB" },
+    { title: "Scorpion.S01E01.720p.WEB-DL.ENGLISH 👤 20 💾 1 GB" }
+  ], {
+    rules: {
+      minimumQuality: "720p",
+      maximumQuality: "4k",
+      allowedAudioLanguages: ["english"],
+      allowUnlabelledAudio: true
+    }
+  });
+
+  assert.equal(ranked.length, 1);
+  assert.match(ranked[0].title, /ENGLISH/);
+});
+
+test("rejects an unlabelled dubbed release when a language allowlist is active", () => {
+  const ranked = rankStreams([
+    { title: "Scorpion.S01E01.1080p.WEB-DL.DUBBED 👤 50 💾 2 GB" }
+  ], {
+    rules: {
+      minimumQuality: "720p",
+      maximumQuality: "4k",
+      allowedAudioLanguages: ["english"],
+      allowUnlabelledAudio: true
+    }
+  });
+
+  assert.equal(ranked.length, 0);
+});

@@ -85,6 +85,65 @@ function matchesLanguage(text: string, requested: string) {
   return values.some((value) => ` ${text} `.includes(value));
 }
 
+const audioLanguagePatterns: Record<string, RegExp[]> = {
+  english: [/\benglish\b/i, /\beng\b/i, /🇬🇧|🇺🇸/],
+  dutch: [/\bdutch\b/i, /\bnederlands?\b/i, /\bnld\b/i, /🇳🇱/],
+  german: [/\bgerman\b/i, /\bdeutsch\b/i, /\bger\b/i, /🇩🇪/],
+  french: [/\bfrench\b/i, /\bfran[cç]ais\b/i, /\bfre\b/i, /🇫🇷/],
+  spanish: [/\bspanish\b/i, /\bespa[nñ]ol\b/i, /\bspa\b/i, /🇪🇸/],
+  italian: [/\bitalian\b/i, /\bitaliano\b/i, /\bita\b/i, /🇮🇹/],
+  polish: [/\bpolish\b/i, /\bpolski\b/i, /\bpol\b/i, /\bpl\b/i, /\blektor\b/i, /🇵🇱/],
+  portuguese: [/\bportuguese\b/i, /\bportugu[eê]s\b/i, /\bpor\b/i, /\bpt(?:-br)?\b/i, /🇵🇹|🇧🇷/],
+  japanese: [/\bjapanese\b/i, /\bjpn\b/i, /\bja\b/i, /🇯🇵/],
+  korean: [/\bkorean\b/i, /\bkor\b/i, /\bko\b/i, /🇰🇷/],
+  chinese: [/\bchinese\b/i, /\bmandarin\b/i, /\bcantonese\b/i, /\bchi\b/i, /\bzho\b/i, /🇨🇳|🇭🇰|🇹🇼/],
+  russian: [/\brussian\b/i, /\brus\b/i, /🇷🇺/],
+  ukrainian: [/\bukrainian\b/i, /\bukr\b/i, /🇺🇦/],
+  czech: [/\bczech\b/i, /\bcesky\b/i, /\bcze\b/i, /🇨🇿/],
+  hungarian: [/\bhungarian\b/i, /\bmagyar\b/i, /\bhun\b/i, /🇭🇺/],
+  turkish: [/\bturkish\b/i, /\bt[uü]rk[cç]e\b/i, /\btur\b/i, /🇹🇷/],
+  arabic: [/\barabic\b/i, /\bara\b/i, /🇸🇦|🇦🇪|🇪🇬/],
+  hindi: [/\bhindi\b/i, /\bhin\b/i, /🇮🇳/],
+  swedish: [/\bswedish\b/i, /\bsvenska\b/i, /\bswe\b/i, /🇸🇪/],
+  norwegian: [/\bnorwegian\b/i, /\bnorsk\b/i, /\bnor\b/i, /🇳🇴/],
+  danish: [/\bdanish\b/i, /\bdansk\b/i, /\bdan\b/i, /🇩🇰/],
+  finnish: [/\bfinnish\b/i, /\bsuomi\b/i, /\bfin\b/i, /🇫🇮/],
+  greek: [/\bgreek\b/i, /\bgre\b/i, /\bell\b/i, /🇬🇷/],
+  hebrew: [/\bhebrew\b/i, /\bheb\b/i, /🇮🇱/],
+  thai: [/\bthai\b/i, /\btha\b/i, /🇹🇭/],
+  indonesian: [/\bindonesian\b/i, /\bbahasa\b/i, /\bind\b/i, /🇮🇩/],
+  romanian: [/\bromanian\b/i, /\brom[aâ]n[aă]\b/i, /\bron\b/i, /🇷🇴/],
+  bulgarian: [/\bbulgarian\b/i, /\bbul\b/i, /🇧🇬/],
+  vietnamese: [/\bvietnamese\b/i, /\bvie\b/i, /🇻🇳/]
+};
+
+function normalizedReleaseText(text: string) {
+  return text.replace(/[._+\-()[\]{}]/g, " ").replace(/\s+/g, " ");
+}
+
+function detectedAudioLanguages(text: string) {
+  const normalized = normalizedReleaseText(text);
+  return Object.entries(audioLanguagePatterns)
+    .filter(([, patterns]) => patterns.some((pattern) => pattern.test(normalized)))
+    .map(([language]) => language);
+}
+
+function matchesAudioRules(text: string, rules: Record<string, any>) {
+  const allowed = Array.isArray(rules.allowedAudioLanguages)
+    ? rules.allowedAudioLanguages.map((value: unknown) => String(value).toLowerCase())
+    : [];
+  if (!allowed.length && rules.preferredLanguage) {
+    return matchesLanguage(text, String(rules.preferredLanguage));
+  }
+  if (!allowed.length) return true;
+  const detected = detectedAudioLanguages(text);
+  if (!detected.length) {
+    if (/\bdubbed\b|\bdub\b/i.test(normalizedReleaseText(text))) return false;
+    return rules.allowUnlabelledAudio !== false;
+  }
+  return detected.some((language) => allowed.includes(language));
+}
+
 const qualityRank: Record<string, number> = {
   unknown: 0,
   "720p": 1,
@@ -230,10 +289,7 @@ export function rankStreams(streams: any[], settings: Settings = {}) {
       const size = getSizeGb(text);
       if (rules.maximumSizeGb > 0 && size > rules.maximumSizeGb) return false;
       if (rules.minimumSeeders > 0 && getSeeders(text) < rules.minimumSeeders) return false;
-      if (
-        rules.preferredLanguage &&
-        !matchesLanguage(text, String(rules.preferredLanguage))
-      ) return false;
+      if (!matchesAudioRules(text, rules)) return false;
       return true;
     })
     .map((stream) => {

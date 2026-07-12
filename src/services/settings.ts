@@ -22,6 +22,8 @@ const defaultSettings = {
     maximumSizeGb: 0,
     minimumSeeders: 0,
     preferredLanguage: "",
+    allowedAudioLanguages: ["english"] as string[],
+    allowUnlabelledAudio: true,
     allowRemux: true,
     preferHdr: false,
     preferredCodec: "automatic"
@@ -93,6 +95,15 @@ export function normalizeSettings(settings: any) {
     rules: {
       ...defaultSettings.rules,
       ...(settings.rules || {}),
+      allowedAudioLanguages: Array.isArray(settings.rules?.allowedAudioLanguages)
+        ? settings.rules.allowedAudioLanguages
+            .filter((value: unknown) => typeof value === "string")
+            .map((value: string) => value.trim().toLowerCase())
+            .filter(Boolean)
+        : settings.rules?.preferredLanguage
+          ? [String(settings.rules.preferredLanguage).trim().toLowerCase()]
+          : defaultSettings.rules.allowedAudioLanguages,
+      allowUnlabelledAudio: settings.rules?.allowUnlabelledAudio !== false,
       maximumSizeGb: clamp(settings.rules?.maximumSizeGb, 0, 500, 0),
       minimumSeeders: clamp(settings.rules?.minimumSeeders, 0, 10000, 0)
     },

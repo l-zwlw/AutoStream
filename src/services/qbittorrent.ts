@@ -444,7 +444,8 @@ export async function prepareStreamingCandidate(
 async function testCandidate(
   candidate: TorrentCandidate,
   options: ReturnType<typeof normalizeFallbackOptions>,
-  deadline: number
+  deadline: number,
+  signal?: AbortSignal
 ) {
   const infoHash = candidate.infoHash!.toLowerCase();
   const existing = await getTorrent(infoHash);
@@ -456,11 +457,13 @@ async function testCandidate(
 
   const startedAt = Date.now();
   let selectedFileIndex: number | null = null;
+  let metadataReady = false;
 
   try {
     while (
       Date.now() - startedAt < options.candidateTimeoutMs &&
-      Date.now() < deadline
+      Date.now() < deadline &&
+      !signal?.aborted
     ) {
       const torrent = await getTorrent(infoHash);
 
@@ -472,7 +475,8 @@ async function testCandidate(
       if (["error", "missingFiles", "unknown"].includes(torrent.state)) {
         return {
           success: false,
-          reason: `qBittorrent state: ${torrent.state}`
+          reason: `qBittorrent state: ${torrent.state}`,
+          metadataReady
         };
       }
 
@@ -483,6 +487,7 @@ async function testCandidate(
           infoHash,
           candidate.fileIdx
         );
+        metadataReady = true;
 
         console.log(
           `qBittorrent restricted ${infoHash} to file index ${selectedFileIndex}`
@@ -507,7 +512,8 @@ async function testCandidate(
       if (hasMetadata && hasActivity && hasPeers) {
         return {
           success: true,
-          reason: `ready with ${torrent.num_seeds} seeds at ${torrent.dlspeed} B/s`
+          reason: `ready with ${torrent.num_seeds} seeds at ${torrent.dlspeed} B/s`,
+          metadataReady: true
         };
       }
 
@@ -516,7 +522,10 @@ async function testCandidate(
 
     return {
       success: false,
-      reason: `no usable data within ${options.candidateTimeoutMs / 1000} seconds`
+      reason: signal?.aborted
+        ? "cancelled after another candidate succeeded"
+        : `no usable data within ${options.candidateTimeoutMs / 1000} seconds`,
+      metadataReady
     };
   } finally {
     if (createdByAutoStream) {
@@ -530,24 +539,72 @@ export async function selectFirstPlayableTorrent(
   fallbackOptions: FallbackOptions = {}
 ): Promise<FallbackSelection> {
   const options = normalizeFallbackOptions(fallbackOptions);
-  const candidates = rankedStreams
+  const validCandidates = rankedStreams
     .filter((stream) =>
       typeof stream.infoHash === "string" &&
       /^[a-fA-F0-9]{40}$/.test(stream.infoHash)
-    )
-    .slice(0, options.maximumCandidates);
+    );
+  const qualityOrder = ["4k", "1080p", "720p", "unknown"];
+  const qualityOf = (candidate: TorrentCandidate) => {
+    const text = `${candidate.title || ""}`.toLowerCase();
+    if (/2160p|\b4k\b/.test(text)) return "4k";
+    if (/1080p/.test(text)) return "1080p";
+    if (/720p/.test(text)) return "720p";
+    return "unknown";
+  };
+  const buckets = new Map(
+    qualityOrder.map((quality) => [
+      quality,
+      validCandidates.filter((candidate) => qualityOf(candidate) === quality)
+    ])
+  );
+  const candidates: TorrentCandidate[] = [];
+  for (let round = 0; candidates.length < options.maximumCandidates; round += 1) {
+    let added = false;
+    for (const quality of qualityOrder) {
+      const candidate = buckets.get(quality)?.[round];
+      if (candidate) {
+        candidates.push(candidate);
+        added = true;
+        if (candidates.length >= options.maximumCandidates) break;
+      }
+    }
+    if (!added) break;
+  }
+  if (!candidates.length) {
+    return { stream: null, attempts: [] };
+  }
   const deadline = Date.now() + options.candidateTimeoutMs;
-  const tested = await Promise.all(candidates.map(async (candidate) => {
+  const probeController = new AbortController();
+  type TestedCandidate = {
+    candidate: TorrentCandidate;
+    metadataReady: boolean;
+    attempt: FallbackAttempt;
+  };
+  let resolveFirstSuccess: (value: TestedCandidate | null) => void = () => undefined;
+  const firstSuccess = new Promise<TestedCandidate | null>((resolve) => {
+    resolveFirstSuccess = resolve;
+  });
+  let remaining = candidates.length;
+  let winnerResolved = false;
+  const tasks = candidates.map(async (candidate): Promise<TestedCandidate> => {
     const infoHash = candidate.infoHash!.toLowerCase();
+    let tested: TestedCandidate;
     try {
-      const result = await testCandidate(candidate, options, deadline);
+      const result = await testCandidate(
+        candidate,
+        options,
+        deadline,
+        probeController.signal
+      );
       console.log(
         `Fallback candidate ${result.success ? "accepted" : "rejected"}:`,
         candidate.title || infoHash,
         `(${result.reason})`
       );
-      return {
+      tested = {
         candidate,
+        metadataReady: result.metadataReady,
         attempt: {
           infoHash,
           title: candidate.title || infoHash,
@@ -558,8 +615,9 @@ export async function selectFirstPlayableTorrent(
     } catch (error) {
       const reason = error instanceof Error ? error.message : "Unknown error";
       console.warn("Fallback candidate failed:", reason);
-      return {
+      tested = {
         candidate,
+        metadataReady: false,
         attempt: {
           infoHash,
           title: candidate.title || infoHash,
@@ -568,12 +626,41 @@ export async function selectFirstPlayableTorrent(
         } satisfies FallbackAttempt
       };
     }
-  }));
-  const attempts = tested.map(({ attempt }) => attempt);
-  const playable = tested.find(({ attempt }) => attempt.success);
+    remaining -= 1;
+    if (!winnerResolved && tested.attempt.success) {
+      winnerResolved = true;
+      probeController.abort();
+      resolveFirstSuccess(tested);
+    } else if (!winnerResolved && remaining === 0) {
+      winnerResolved = true;
+      resolveFirstSuccess(null);
+    }
+    return tested;
+  });
 
-  if (playable) {
-    return { stream: playable.candidate, attempts };
+  const earlyWinner = await firstSuccess;
+  if (earlyWinner) {
+    return {
+      stream: earlyWinner.candidate,
+      attempts: [earlyWinner.attempt]
+    };
+  }
+
+  const tested = await Promise.all(tasks);
+  const attempts = tested.map(({ attempt }) => attempt);
+
+  // For passthrough, Stremio performs the real download. If the short probe
+  // finds no winner, prefer the strongest compact 720p quality-round result.
+  const metadataCandidates = tested.filter(({ metadataReady }) => metadataReady);
+  const safePassthrough =
+    candidates
+      .filter((candidate) => qualityOf(candidate) === "720p")
+      .map((candidate) => tested.find((item) => item.candidate === candidate))
+      .find(Boolean) ||
+    metadataCandidates[0];
+  if (safePassthrough) {
+    console.log("Using quality-round passthrough candidate:", safePassthrough.candidate.title);
+    return { stream: safePassthrough.candidate, attempts };
   }
 
   return {

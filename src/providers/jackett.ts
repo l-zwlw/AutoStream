@@ -53,8 +53,14 @@ function exactEpisode(title: string, season?: number, episode?: number) {
 
 function matchesTitle(title: string, requiredTitle?: string) {
   if (!requiredTitle) return true;
-  const normalize = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, "");
-  return normalize(title).includes(normalize(requiredTitle));
+  const normalize = (value: string) => value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .replace(/\s+/g, " ");
+  const candidate = normalize(title);
+  const required = normalize(requiredTitle);
+  return candidate === required || candidate.startsWith(`${required} `);
 }
 
 async function torrentIdentity(item: any) {
@@ -114,6 +120,26 @@ export async function getJackettStreams(type: string, id: string, settings: Jack
   } catch {
     // Many Jackett indexers only support text search. The fallback below
     // resolves the title and retries without relying on IMDb support.
+  }
+
+  // IMDb searches can still return loosely related titles from some indexers.
+  // Resolve the canonical title so those false positives are removed too.
+  if (items.length > 0) {
+    try {
+      const metadataResponse = await fetch(
+        `https://v3-cinemeta.strem.io/meta/${type}/${imdbId}.json`,
+        { signal: AbortSignal.timeout(8_000) }
+      );
+      if (metadataResponse.ok) {
+        const metadata: any = await metadataResponse.json();
+        requiredTitle = String(metadata?.meta?.name || "")
+          .replace(/:/g, " ")
+          .replace(/\s+/g, " ")
+          .trim();
+      }
+    } catch {
+      // The exact episode check still applies when metadata is unavailable.
+    }
   }
 
   if (items.length === 0) {

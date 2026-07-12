@@ -13,6 +13,17 @@ import { getJackettStreams } from "./providers/jackett";
 const experimentalHttpEnabled =
   process.env.ENABLE_EXPERIMENTAL_HTTP === "true";
 
+const passthroughSelectionCache = new Map<
+  string,
+  { infoHash: string; expiresAt: number }
+>();
+
+function passthroughCacheKey(type: string, id: string, settings: any) {
+  const [imdbId, season] = id.split(":");
+  const content = type === "series" ? `${imdbId}:${season || ""}` : imdbId;
+  return `${type}:${content}:${settings.profile || "balanced"}`;
+}
+
 function getProfileName(profile: string) {
   switch (profile) {
     case "balanced":
@@ -68,6 +79,23 @@ export async function getStreams(
 
   let stream = ranked[0];
   const qbittorrent = await getQBittorrentStatus();
+  const passthroughKey = passthroughCacheKey(type, id, settings);
+  const cachedPassthrough = passthroughSelectionCache.get(passthroughKey);
+  const cachedStream =
+    cachedPassthrough && cachedPassthrough.expiresAt > Date.now()
+      ? ranked.find(
+          (candidate) =>
+            candidate.infoHash?.toLowerCase() === cachedPassthrough.infoHash
+        )
+      : undefined;
+
+  if (cachedPassthrough && !cachedStream) {
+    passthroughSelectionCache.delete(passthroughKey);
+  }
+  if (settings.playbackMethod === "torrent" && cachedStream) {
+    stream = cachedStream;
+    console.log("Using cached passthrough selection:", cachedStream.infoHash);
+  }
 
   if (
     publicBaseUrl &&
@@ -109,11 +137,20 @@ export async function getStreams(
   if (
     qbittorrent.online &&
     settings.profile !== "debrid" &&
-    settings.fallback?.enabled !== false
+    settings.fallback?.enabled !== false &&
+    !(settings.playbackMethod === "torrent" && cachedStream)
   ) {
     const fallback = await selectFirstPlayableTorrent(
       ranked,
-      settings.fallback
+      settings.playbackMethod === "torrent"
+        ? {
+            ...settings.fallback,
+            candidateTimeoutSeconds: Math.min(
+              Number(settings.fallback?.candidateTimeoutSeconds || 6),
+              4
+            )
+          }
+        : settings.fallback
     );
 
     for (const attempt of fallback.attempts) {
@@ -122,6 +159,12 @@ export async function getStreams(
 
     if (fallback.stream) {
       stream = fallback.stream;
+      if (settings.playbackMethod === "torrent" && stream.infoHash) {
+        passthroughSelectionCache.set(passthroughKey, {
+          infoHash: stream.infoHash.toLowerCase(),
+          expiresAt: Date.now() + 30 * 60 * 1000
+        });
+      }
     } else {
       console.warn(
         "No fallback candidate passed the startup test; using the highest-ranked stream"

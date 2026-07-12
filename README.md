@@ -33,7 +33,7 @@ The optional qBittorrent startup check verifies the exact requested movie or epi
 - Household profiles with individual settings and Stremio install URLs
 - One-password dashboard protection with rate limiting
 - Multi-architecture Docker images for AMD64 and ARM64
-- Docker, ZimaOS, and GHCR support
+- Standard Docker Compose and GHCR support
 - Seekable HTTP VOD with on-demand HLS segment generation
 - A dedicated libtorrent sidecar with time-critical piece deadlines
 - Mid-stream fallback at the same segment timestamp
@@ -79,7 +79,18 @@ Each playback request gets its own session URL. Sessions for the same content sh
 
 ## Installation
 
-Create a custom app and paste the contents of [`docker-compose.yml`](docker-compose.yml). It is a normal Compose stack with three services, deliberately ordered with AutoStream first, followed by its qBittorrent and streaming-engine sidecars.
+Install Docker with the Compose plugin, then run:
+
+```bash
+git clone https://github.com/l-zwlw/AutoStream.git
+cd AutoStream
+docker compose pull
+docker compose up -d
+```
+
+The standard [`docker-compose.yml`](docker-compose.yml) starts AutoStream with
+its qBittorrent and streaming-engine sidecars. Persistent configuration is
+stored in local folders next to the Compose file.
 
 After the stack starts, open:
 
@@ -100,18 +111,10 @@ Do not expose Jackett directly to the public internet.
 
 ### Update
 
-Pull and recreate the stack from the ZimaOS interface, or run:
+From the AutoStream directory, run:
 
 ```bash
-docker compose pull
-docker compose up -d
-```
-
-## Docker Compose from Git
-
-```bash
-git clone https://github.com/l-zwlw/AutoStream.git
-cd AutoStream
+git pull
 docker compose pull
 docker compose up -d
 ```

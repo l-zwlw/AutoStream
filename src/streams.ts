@@ -7,22 +7,11 @@ import {
 } from "./services/qbittorrent";
 import { createVodSession } from "./services/vodStreaming";
 import { deduplicateStreams } from "./services/dedupe";
-import { recordStreamOutcome } from "./services/health";
+import { recordAddonResult, recordStreamOutcome } from "./services/health";
 import { getJackettStreams } from "./providers/jackett";
 
 const experimentalHttpEnabled =
   process.env.ENABLE_EXPERIMENTAL_HTTP === "true";
-
-const passthroughSelectionCache = new Map<
-  string,
-  { infoHash: string; expiresAt: number }
->();
-
-function passthroughCacheKey(type: string, id: string, settings: any) {
-  const [imdbId, season] = id.split(":");
-  const content = type === "series" ? `${imdbId}:${season || ""}` : imdbId;
-  return `${type}:${content}:${settings.profile || "balanced"}`;
-}
 
 function getProfileName(profile: string) {
   switch (profile) {
@@ -53,18 +42,59 @@ export async function getStreams(
   profileSettings?: any
 ) {
   const settings = profileSettings || getSettings();
-  const [addonStreams, jackettStreams] = await Promise.all([
+  const loadJackettStreams = async () => {
+    const startedAt = Date.now();
+    try {
+      const results = await getJackettStreams(type, id, settings.jackett);
+      if (settings.jackett?.enabled) {
+        recordAddonResult("jackett", {
+          success: true,
+          latencyMs: Date.now() - startedAt,
+          streams: results.length
+        });
+      }
+      return results;
+    } catch (error) {
+      if (settings.jackett?.enabled) {
+        recordAddonResult("jackett", {
+          success: false,
+          latencyMs: Date.now() - startedAt,
+          streams: 0,
+          error: error instanceof Error ? error.message : "Jackett search failed"
+        });
+      }
+      console.warn("Jackett search failed:", error instanceof Error ? error.message : error);
+      return [];
+    }
+  };
+  const sourceResults: any[][] = [];
+  let resolveFirstSource: (() => void) | undefined;
+  const firstSource = new Promise<void>((resolve) => {
+    resolveFirstSource = resolve;
+  });
+  const sourceTasks = [
     getAddonStreams(
       type,
       id,
       settings.addonIds,
       settings.addonSelectionConfigured
     ),
-    getJackettStreams(type, id, settings.jackett).catch((error) => {
-      console.warn("Jackett search failed:", error instanceof Error ? error.message : error);
-      return [];
-    })
+    loadJackettStreams()
+  ].map(async (task, index) => {
+    const result = await task;
+    sourceResults[index] = result;
+    if (result.length) resolveFirstSource?.();
+    return result;
+  });
+
+  // Merge fast sources, but never let a slow Jackett/indexer query hold the
+  // Stremio screen open. Late Jackett results still populate its cache.
+  await Promise.race([
+    Promise.all(sourceTasks),
+    firstSource.then(() => new Promise((resolve) => setTimeout(resolve, 750))),
+    new Promise((resolve) => setTimeout(resolve, 2_500))
   ]);
+  const [addonStreams = [], jackettStreams = []] = sourceResults;
   const streams = deduplicateStreams([...addonStreams, ...jackettStreams]);
 
   if (!streams.length) {
@@ -78,24 +108,29 @@ export async function getStreams(
   }
 
   let stream = ranked[0];
-  const qbittorrent = await getQBittorrentStatus();
-  const passthroughKey = passthroughCacheKey(type, id, settings);
-  const cachedPassthrough = passthroughSelectionCache.get(passthroughKey);
-  const cachedStream =
-    cachedPassthrough && cachedPassthrough.expiresAt > Date.now()
-      ? ranked.find(
-          (candidate) =>
-            candidate.infoHash?.toLowerCase() === cachedPassthrough.infoHash
-        )
-      : undefined;
 
-  if (cachedPassthrough && !cachedStream) {
-    passthroughSelectionCache.delete(passthroughKey);
+  // Torrent passthrough must stay fast. Stremio is the torrent client in this
+  // mode, so waiting for qBittorrent to add, probe and delete several magnets
+  // adds seconds of latency without reliably predicting Stremio playback.
+  // The globally ranked result already favours real availability signals such
+  // as seeders and a practical file size.
+  if (settings.playbackMethod === "torrent") {
+    console.log("Fast passthrough selection:", stream.title || stream.infoHash);
+    return [
+      {
+        ...Object.fromEntries(
+          Object.entries(stream).filter(([key]) => !key.startsWith("_autostream"))
+        ),
+        name: getProfileName(settings.profile),
+        title: "🍿",
+        behaviorHints: {
+          ...stream.behaviorHints
+        }
+      }
+    ];
   }
-  if (settings.playbackMethod === "torrent" && cachedStream) {
-    stream = cachedStream;
-    console.log("Using cached passthrough selection:", cachedStream.infoHash);
-  }
+
+  const qbittorrent = await getQBittorrentStatus();
 
   if (
     publicBaseUrl &&
@@ -137,20 +172,11 @@ export async function getStreams(
   if (
     qbittorrent.online &&
     settings.profile !== "debrid" &&
-    settings.fallback?.enabled !== false &&
-    !(settings.playbackMethod === "torrent" && cachedStream)
+    settings.fallback?.enabled !== false
   ) {
     const fallback = await selectFirstPlayableTorrent(
       ranked,
-      settings.playbackMethod === "torrent"
-        ? {
-            ...settings.fallback,
-            candidateTimeoutSeconds: Math.min(
-              Number(settings.fallback?.candidateTimeoutSeconds || 6),
-              4
-            )
-          }
-        : settings.fallback
+      settings.fallback
     );
 
     for (const attempt of fallback.attempts) {
@@ -159,12 +185,6 @@ export async function getStreams(
 
     if (fallback.stream) {
       stream = fallback.stream;
-      if (settings.playbackMethod === "torrent" && stream.infoHash) {
-        passthroughSelectionCache.set(passthroughKey, {
-          infoHash: stream.infoHash.toLowerCase(),
-          expiresAt: Date.now() + 30 * 60 * 1000
-        });
-      }
     } else {
       console.warn(
         "No fallback candidate passed the startup test; using the highest-ranked stream"

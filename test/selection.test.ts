@@ -106,6 +106,36 @@ test("seed availability outweighs premium format bonuses", () => {
   assert.match(ranked[0].title, /720p/);
 });
 
+test("highest-seeded practical release wins across all quality buckets", () => {
+  const streams = [
+    {
+      infoHash: "1".repeat(40),
+      title: "Show S01E01 2160p REMUX HDR Atmos 👤 3 💾 48 GB"
+    },
+    {
+      infoHash: "2".repeat(40),
+      title: "Show S01E01 1080p WEB-DL HEVC 👤 14 💾 8 GB"
+    },
+    {
+      infoHash: "3".repeat(40),
+      title: "Show S01E01 720p WEB-DL H264 👤 120 💾 1.2 GB"
+    }
+  ];
+
+  const ranked = rankStreams(streams, {
+    profile: "balanced",
+    rules: {
+      minimumQuality: "720p",
+      maximumQuality: "4k",
+      maximumSizeGb: 0,
+      minimumSeeders: 0,
+      allowRemux: true
+    }
+  });
+
+  assert.equal(ranked[0].infoHash, "3".repeat(40));
+});
+
 test("filters explicitly labelled foreign-only audio while allowing unlabelled original audio", () => {
   const ranked = rankStreams([
     { title: "Scorpion.S01E01.1080p.WEB-DL.POLISH.LEKTOR 👤 80 💾 2 GB" },

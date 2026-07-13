@@ -273,6 +273,9 @@
     .addon-url { color: var(--muted-2); font-family: 'JetBrains Mono', monospace; font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .addon-actions { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding-top: 14px; border-top: 1px solid var(--border); }
     .toggle {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
       border: 1px solid var(--border);
       background: rgba(255,255,255,0.06);
       color: var(--muted);
@@ -318,7 +321,7 @@
 
     .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.62); backdrop-filter: blur(8px); display: none; align-items: center; justify-content: center; padding: 20px; z-index: 100; }
     .modal-backdrop.open { display: flex; }
-    .modal { width: min(520px, 100%); }
+    .modal { width: min(520px, 100%); max-height: calc(100vh - 40px); overflow-y: auto; }
     .modal h2 { margin-bottom: 8px; }
     .modal p { color: var(--muted); line-height: 1.5; }
     .modal-actions { margin-top: 22px; display: flex; justify-content: flex-end; gap: 10px; }
@@ -450,7 +453,7 @@
           <div class="section-head">
             <div>
               <h2>Addons</h2>
-              <p>Add any Stremio-compatible addon manifest URL.</p>
+              <p>Manage Stremio addons and built-in torrent sources.</p>
             </div>
             <button class="btn btn-primary" id="openModalBtn">Add addon</button>
           </div>
@@ -633,16 +636,6 @@
             </div>
 
             <div class="card card-pad">
-              <h2>Jackett torrent source</h2>
-              <p class="hint" style="margin-top:8px;">Connect an existing Jackett instance and search the trackers configured there. Jackett is not bundled with AutoStream.</p>
-              <div class="check-row"><div><label for="jackettEnabled">Use Jackett</label><p class="hint" style="margin-top:4px;">Results join your normal addon results and use the same availability-first ranking.</p></div><input id="jackettEnabled" type="checkbox" /></div>
-              <div class="field"><label for="jackettUrl">Jackett URL</label><input class="input" id="jackettUrl" placeholder="http://host.docker.internal:9117" /><p class="hint">Use <code>host.docker.internal</code> when Jackett runs separately on the same Docker host, or enter its LAN URL.</p></div>
-              <div class="field"><label for="jackettApiKey">Jackett API key</label><input class="input" id="jackettApiKey" type="password" placeholder="Paste the API key from Jackett" /></div>
-              <div class="field"><label for="jackettIndexer">Indexer or filter</label><input class="input" id="jackettIndexer" value="all" placeholder="all" /><p class="hint">Use “all”, an indexer ID, or a Jackett filter such as <code>status:healthy</code>.</p></div>
-              <a class="btn" id="openJackettBtn" href="http://localhost:9117" target="_blank" rel="noreferrer" style="margin-top:18px;">Open Jackett</a>
-            </div>
-
-            <div class="card card-pad">
               <h2>Playback method</h2>
               <p class="hint" style="margin-top:8px;">Choose a stable torrent handoff or the experimental HTTP proxy.</p>
 
@@ -723,6 +716,22 @@
       <div class="modal-actions">
         <button class="btn" id="cancelModalBtn">Cancel</button>
         <button class="btn btn-primary" id="addAddonBtn">Add addon</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-backdrop" id="jackettModalBackdrop">
+    <div class="card card-pad modal">
+      <h2>Configure Jackett</h2>
+      <p>Connect an existing Jackett instance for the currently selected viewer profile. Jackett itself is not bundled with AutoStream.</p>
+      <div class="check-row"><label for="jackettEnabled">Enable Jackett</label><input id="jackettEnabled" type="checkbox" /></div>
+      <div class="field"><label for="jackettUrl">Jackett URL</label><input class="input" id="jackettUrl" placeholder="http://host.docker.internal:9117" /><p class="hint">Use <code>host.docker.internal</code> when Jackett runs on the same Docker host, or enter its LAN URL.</p></div>
+      <div class="field"><label for="jackettApiKey">Jackett API key</label><input class="input" id="jackettApiKey" type="password" placeholder="Paste the API key from Jackett" /></div>
+      <div class="field"><label for="jackettIndexer">Indexer or filter</label><input class="input" id="jackettIndexer" value="all" placeholder="all" /><p class="hint">Use “all”, an indexer ID, or a Jackett filter such as <code>status:healthy</code>.</p></div>
+      <div class="modal-actions">
+        <a class="btn" id="openJackettBtn" href="http://localhost:9117" target="_blank" rel="noreferrer">Open Jackett</a>
+        <button class="btn" id="cancelJackettBtn">Cancel</button>
+        <button class="btn btn-primary" id="saveJackettBtn">Save</button>
       </div>
     </div>
   </div>
@@ -875,6 +884,7 @@
       const jackettUrl = settings.jackett?.url || '';
       document.getElementById('openJackettBtn').href = jackettUrl.replace('host.docker.internal', window.location.hostname) || '#';
       renderProfileAddons();
+      renderAddons();
       updateDebridPanel();
       updatePlaybackPanel();
       setInstallUrls();
@@ -955,6 +965,31 @@
       await loadStatus();
     }
 
+    async function saveJackettSettings() {
+      const res = await fetch(`${API.profiles}/${encodeURIComponent(selectedProfileId)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          settings: {
+            jackett: {
+              enabled: document.getElementById('jackettEnabled').checked,
+              url: document.getElementById('jackettUrl').value.trim(),
+              apiKey: document.getElementById('jackettApiKey').value,
+              indexer: document.getElementById('jackettIndexer').value.trim() || 'all'
+            }
+          }
+        })
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        return toast('Error', data.error || 'Could not save Jackett.');
+      }
+      await loadProfiles(selectedProfileId);
+      await Promise.all([loadStatus(), loadHealth()]);
+      closeJackettModal();
+      toast('Saved', 'Jackett settings updated for this profile.');
+    }
+
     function updateDebridPanel() {
       const profile = document.getElementById('profileSelect').value;
       document.getElementById('debridPanel').classList.toggle('visible', profile === 'debrid');
@@ -1029,10 +1064,14 @@
       if (!response.ok) return;
       const data = await response.json();
       const byId = new Map((data.addons || []).map(item => [item.addonId, item]));
-      document.getElementById('healthGrid').innerHTML = addons.map(addon => {
-        const health = byId.get(addon.id);
+      const healthSources = [...addons];
+      if (settings.jackett?.enabled) {
+        healthSources.push({ id: 'jackett', instanceId: 'jackett', name: 'Jackett', version: 'built-in' });
+      }
+      document.getElementById('healthGrid').innerHTML = healthSources.map(addon => {
+        const health = byId.get(addon.instanceId) || byId.get(addon.id);
         const status = health?.lastError ? 'Offline' : health?.lastCheckedAt ? 'Online' : 'Not tested';
-        return `<div class="card addon-card"><div class="addon-head">${addonLogo(addon)}<div><h3>${escapeHtml(addon.name)}</h3><p>${status}</p></div></div><p class="hint">Success: ${health ? Math.round(health.successRate * 100) : 0}% · Average: ${health?.averageLatencyMs || 0} ms · Streams: ${health?.streamsReturned || 0}</p>${health?.lastError ? `<p class="hint" style="color:#ff9b9b">${escapeHtml(health.lastError)}</p>` : ''}</div>`;
+        return `<div class="card addon-card"><div class="addon-head">${addonLogo(addon)}<div><h3>${escapeHtml(addon.name)}</h3><p>${status}</p></div></div><p class="hint">Requests: ${health?.requests || 0} · Success: ${health ? Math.round(health.successRate * 100) : 0}% · Average: ${health?.averageLatencyMs || 0} ms · Streams: ${health?.streamsReturned || 0}</p>${health?.lastError ? `<p class="hint" style="color:#ff9b9b">${escapeHtml(health.lastError)}</p>` : ''}</div>`;
       }).join('');
     }
 
@@ -1117,9 +1156,32 @@
       const filtered = addons.filter(addon => {
         return `${addon.name || ''} ${addon.description || ''} ${addon.url || ''}`.toLowerCase().includes(query);
       });
+      const showJackett = `jackett built-in torrent source`.includes(query);
 
       grid.innerHTML = '';
-      empty.style.display = filtered.length ? 'none' : 'block';
+      empty.style.display = filtered.length || showJackett ? 'none' : 'block';
+
+      if (showJackett) {
+        const jackettCard = document.createElement('div');
+        jackettCard.className = 'card addon-card';
+        jackettCard.innerHTML = `
+          <div class="addon-head">
+            <img class="addon-logo" src="/jackett.svg" alt="Jackett logo" />
+            <div style="min-width:0;">
+              <div class="addon-name">Jackett</div>
+              <div class="addon-version">Built-in connector</div>
+            </div>
+          </div>
+          <div class="addon-desc">Search the trackers in your existing Jackett instance.</div>
+          <div class="addon-url">${settings.jackett?.url ? escapeHtml(settings.jackett.url) : 'Not configured'}</div>
+          <div class="addon-actions">
+            <span class="toggle ${settings.jackett?.enabled ? 'on' : ''}">${settings.jackett?.enabled ? 'Enabled' : 'Disabled'}</span>
+            <button class="btn btn-small" id="configureJackettBtn">Configure</button>
+          </div>
+        `;
+        grid.appendChild(jackettCard);
+        jackettCard.querySelector('#configureJackettBtn').addEventListener('click', openJackettModal);
+      }
 
       filtered.forEach(addon => {
         const index = addons.indexOf(addon);
@@ -1199,6 +1261,8 @@
 
     function openModal() { document.getElementById('modalBackdrop').classList.add('open'); setTimeout(() => document.getElementById('addonUrlInput').focus(), 100); }
     function closeModal() { document.getElementById('modalBackdrop').classList.remove('open'); }
+    function openJackettModal() { document.getElementById('jackettModalBackdrop').classList.add('open'); }
+    function closeJackettModal() { document.getElementById('jackettModalBackdrop').classList.remove('open'); }
 
     function goTo(page) {
       document.querySelectorAll('.page').forEach(el => el.classList.toggle('active', el.id === page));
@@ -1231,6 +1295,8 @@
     document.getElementById('openModalBtn').addEventListener('click', openModal);
     document.getElementById('cancelModalBtn').addEventListener('click', closeModal);
     document.getElementById('modalBackdrop').addEventListener('click', e => { if (e.target.id === 'modalBackdrop') closeModal(); });
+    document.getElementById('cancelJackettBtn').addEventListener('click', closeJackettModal);
+    document.getElementById('jackettModalBackdrop').addEventListener('click', e => { if (e.target.id === 'jackettModalBackdrop') closeJackettModal(); });
     document.getElementById('addAddonBtn').addEventListener('click', addAddon);
     document.getElementById('addonSearch').addEventListener('input', renderAddons);
     document.getElementById('profileSelect').addEventListener('change', updateDebridPanel);
@@ -1242,6 +1308,7 @@
     document.getElementById('newProfileBtn').addEventListener('click', createViewerProfile);
     document.getElementById('deleteProfileBtn').addEventListener('click', deleteViewerProfile);
     document.getElementById('saveSettingsBtn').addEventListener('click', saveSettings);
+    document.getElementById('saveJackettBtn').addEventListener('click', saveJackettSettings);
     document.getElementById('devicePreset').addEventListener('change', applyDevicePreset);
     document.getElementById('testAddonsBtn').addEventListener('click', testAllAddons);
     document.getElementById('clearCacheBtn').addEventListener('click', clearCache);

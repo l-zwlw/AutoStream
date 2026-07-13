@@ -15,6 +15,9 @@ const parser = new XMLParser({
   trimValues: true
 });
 
+const jackettCache = new Map<string, { streams: any[]; expiresAt: number }>();
+const jackettCacheLifetimeMs = 10 * 60 * 1000;
+
 function list<T>(value: T | T[] | undefined): T[] {
   if (value === undefined) return [];
   return Array.isArray(value) ? value : [value];
@@ -91,6 +94,9 @@ async function torrentIdentity(item: any) {
 
 export async function getJackettStreams(type: string, id: string, settings: JackettSettings = {}) {
   if (!settings.enabled || !settings.apiKey || !settings.url) return [];
+  const cacheKey = `${settings.url}|${settings.indexer || "all"}|${type}|${id}`;
+  const cached = jackettCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) return cached.streams;
   const [imdbId, seasonText, episodeText] = id.split(":");
   if (!/^tt\d+$/.test(imdbId || "")) return [];
   const season = Number(seasonText) || undefined;
@@ -195,7 +201,12 @@ export async function getJackettStreams(type: string, id: string, settings: Jack
       return undefined;
     }
   }));
-  return resolved.filter(Boolean);
+  const streams = resolved.filter(Boolean);
+  jackettCache.set(cacheKey, {
+    streams,
+    expiresAt: Date.now() + jackettCacheLifetimeMs
+  });
+  return streams;
 }
 
 export async function getJackettStatus(settings: JackettSettings = {}) {

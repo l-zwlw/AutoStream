@@ -544,7 +544,6 @@ export async function selectFirstPlayableTorrent(
       typeof stream.infoHash === "string" &&
       /^[a-fA-F0-9]{40}$/.test(stream.infoHash)
     );
-  const qualityOrder = ["4k", "1080p", "720p", "unknown"];
   const qualityOf = (candidate: TorrentCandidate) => {
     const text = `${candidate.title || ""}`.toLowerCase();
     if (/2160p|\b4k\b/.test(text)) return "4k";
@@ -552,25 +551,10 @@ export async function selectFirstPlayableTorrent(
     if (/720p/.test(text)) return "720p";
     return "unknown";
   };
-  const buckets = new Map(
-    qualityOrder.map((quality) => [
-      quality,
-      validCandidates.filter((candidate) => qualityOf(candidate) === quality)
-    ])
-  );
-  const candidates: TorrentCandidate[] = [];
-  for (let round = 0; candidates.length < options.maximumCandidates; round += 1) {
-    let added = false;
-    for (const quality of qualityOrder) {
-      const candidate = buckets.get(quality)?.[round];
-      if (candidate) {
-        candidates.push(candidate);
-        added = true;
-        if (candidates.length >= options.maximumCandidates) break;
-      }
-    }
-    if (!added) break;
-  }
+  // rankStreams already compares every addon globally. Preserve that order
+  // here: interleaving one result per quality promoted weak 4K/1080p torrents
+  // over healthier 720p candidates and made fallback less predictable.
+  const candidates = validCandidates.slice(0, options.maximumCandidates);
   if (!candidates.length) {
     return { stream: null, attempts: [] };
   }

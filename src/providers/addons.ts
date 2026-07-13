@@ -5,19 +5,13 @@ const streamCache = new Map<string, { streams: any[]; expiresAt: number }>();
 const cacheLifetimeMs = 10 * 60 * 1000;
 
 async function fetchAddonStreams(url: string) {
-  let lastError: unknown;
-  for (let attempt = 1; attempt <= 2; attempt += 1) {
-    try {
-      const response = await fetch(url, { signal: AbortSignal.timeout(4_000) });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const data: any = await response.json();
-      return Array.isArray(data.streams) ? data.streams : [];
-    } catch (error) {
-      lastError = error;
-      if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 200));
-    }
-  }
-  throw lastError instanceof Error ? lastError : new Error("Addon request failed");
+  // A dead secondary addon must never hold the entire Stremio response open.
+  // Healthy addons normally answer in well under a second; cached results are
+  // still used by the caller when this short live request fails.
+  const response = await fetch(url, { signal: AbortSignal.timeout(2_500) });
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  const data: any = await response.json();
+  return Array.isArray(data.streams) ? data.streams : [];
 }
 
 export async function getAddonStreams(
@@ -35,9 +29,8 @@ export async function getAddonStreams(
   const addons = enabledAddons.filter(
     (addon: any) => enabledAddons.length === 1 || !shouldTemporarilySkipAddon(addon.id)
   );
-  const results = await Promise.all(
-    addons.map(async (addon: any) => {
-      try {
+  const loadAddon = async (addon: any) => {
+    try {
       const startedAt = Date.now();
       const url = `${addon.url}/stream/${type}/${id}.json`;
       const cacheKey = `${addon.instanceId}:${type}:${id}`;
@@ -82,14 +75,38 @@ export async function getAddonStreams(
       console.warn("Addon failed:", addon.name || addon.url, error instanceof Error ? error.message : error);
       recordAddonResult(addon.instanceId, {
         success: false,
-        latencyMs: 8_000,
+        latencyMs: 2_500,
         streams: 0,
         error: error instanceof Error ? error.message : "Request failed"
       });
       return [];
     }
-    })
-  );
+  };
 
-  return results.flat();
+  const settledResults: any[][] = [];
+  let resolveFirstUseful: (() => void) | undefined;
+  const firstUseful = new Promise<void>((resolve) => {
+    resolveFirstUseful = resolve;
+  });
+  const tasks = addons.map(async (addon: any, index: number) => {
+    const result = await loadAddon(addon);
+    try {
+      return result;
+    } finally {
+      settledResults[index] = result;
+      if (result.length) resolveFirstUseful?.();
+    }
+  });
+
+  if (!tasks.length) return [];
+
+  // Once one provider has usable streams, allow other fast providers a small
+  // merge window. Slow/offline providers continue in the background so their
+  // cache and health data can recover without delaying Stremio.
+  await Promise.race([
+    Promise.all(tasks),
+    firstUseful.then(() => new Promise((resolve) => setTimeout(resolve, 300)))
+  ]);
+
+  return settledResults.flat();
 }

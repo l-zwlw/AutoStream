@@ -13,6 +13,26 @@ import { getJackettStreams } from "./providers/jackett";
 const experimentalHttpEnabled =
   process.env.ENABLE_EXPERIMENTAL_HTTP === "true";
 
+const verifiedSelectionCache = new Map<
+  string,
+  { infoHash: string; expiresAt: number }
+>();
+const verificationInFlight = new Map<
+  string,
+  ReturnType<typeof selectFirstPlayableTorrent>
+>();
+const verifiedSelectionLifetimeMs = 2 * 60 * 60 * 1000;
+
+function verifiedSelectionKey(type: string, id: string, settings: any) {
+  const [imdbId, season] = id.split(":");
+  const content = type === "series" ? `${imdbId}:${season || ""}` : imdbId;
+  return `${type}:${content}:${settings.profile || "balanced"}`;
+}
+
+function activeVerificationKey(type: string, id: string, settings: any) {
+  return `${type}:${id}:${settings.profile || "balanced"}`;
+}
+
 function getProfileName(profile: string) {
   switch (profile) {
     case "balanced":
@@ -109,13 +129,61 @@ export async function getStreams(
 
   let stream = ranked[0];
 
-  // Torrent passthrough must stay fast. Stremio is the torrent client in this
-  // mode, so waiting for qBittorrent to add, probe and delete several magnets
-  // adds seconds of latency without reliably predicting Stremio playback.
-  // The globally ranked result already favours real availability signals such
-  // as seeders and a practical file size.
   if (settings.playbackMethod === "torrent") {
-    console.log("Fast passthrough selection:", stream.title || stream.infoHash);
+    const cacheKey = verifiedSelectionKey(type, id, settings);
+    const inFlightKey = activeVerificationKey(type, id, settings);
+    const cached = verifiedSelectionCache.get(cacheKey);
+    const cachedStream =
+      cached && cached.expiresAt > Date.now()
+        ? ranked.find(
+            (candidate) =>
+              candidate.infoHash?.toLowerCase() === cached.infoHash
+          )
+        : undefined;
+
+    if (cachedStream) {
+      stream = cachedStream;
+      console.log("Using verified passthrough selection:", stream.infoHash);
+    } else {
+      if (cached) verifiedSelectionCache.delete(cacheKey);
+      const qbittorrent = await getQBittorrentStatus();
+      if (qbittorrent.online && settings.fallback?.enabled !== false) {
+        let verification = verificationInFlight.get(inFlightKey);
+        if (!verification) {
+          verification = selectFirstPlayableTorrent(ranked, settings.fallback);
+          verificationInFlight.set(inFlightKey, verification);
+        } else {
+          console.log("Joining in-progress passthrough verification:", inFlightKey);
+        }
+
+        let fallback;
+        try {
+          fallback = await verification;
+        } finally {
+          if (verificationInFlight.get(inFlightKey) === verification) {
+            verificationInFlight.delete(inFlightKey);
+          }
+        }
+        for (const attempt of fallback.attempts) {
+          recordStreamOutcome(attempt.infoHash, attempt.success);
+        }
+        if (!fallback.stream) {
+          console.warn("No torrent delivered usable video data during verification");
+          return [];
+        }
+        stream = fallback.stream;
+        if (stream.infoHash) {
+          verifiedSelectionCache.set(cacheKey, {
+            infoHash: stream.infoHash.toLowerCase(),
+            expiresAt: Date.now() + verifiedSelectionLifetimeMs
+          });
+        }
+      } else {
+        console.warn("qBittorrent verification unavailable; using ranked passthrough result");
+      }
+    }
+
+    console.log("Verified passthrough selection:", stream.title || stream.infoHash);
     return [
       {
         ...Object.fromEntries(

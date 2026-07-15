@@ -207,7 +207,8 @@
       background: radial-gradient(circle, rgba(39,184,255,0.18), transparent 68%);
       pointer-events: none;
     }
-    .hero > * { position: relative; z-index: 1; }
+    .hero > * { position: relative; z-index: 1; min-width: 0; }
+    .hero > div { width: 100%; }
     .hero h1 { font-size: 32px; line-height: 1.04; letter-spacing: -0.045em; margin-bottom: 10px; }
     .hero p { color: var(--muted); line-height: 1.55; max-width: 620px; }
 
@@ -220,6 +221,9 @@
       align-items: center;
       gap: 10px;
       max-width: 560px;
+      width: 100%;
+      min-width: 0;
+      box-sizing: border-box;
       margin-top: 18px;
     }
     .install-url {
@@ -333,6 +337,18 @@
       .hamburger { display: inline-flex; }
       .grid-3, .addon-grid { grid-template-columns: 1fr; }
       .topbar, .content { padding-left: 20px; padding-right: 20px; }
+    }
+
+    @media (max-width: 520px) {
+      .topbar { gap: 10px; }
+      .topbar-title { min-width: 0; }
+      .topbar-actions { gap: 8px; }
+      .topbar-actions .btn { padding-left: 12px; padding-right: 12px; }
+      .hero { padding: 24px 20px; }
+      .hero h1 { font-size: 28px; }
+      .install-box { max-width: 100%; }
+      .install-url { min-width: 0; }
+      .section-head { align-items: flex-start; flex-direction: column; }
     }
   </style>
 </head>
@@ -571,17 +587,17 @@
 
               <div class="field">
                 <label for="fallbackTimeout">Seconds per candidate</label>
-                <input class="input" id="fallbackTimeout" type="number" min="3" max="8" step="1" />
+                <input class="input" id="fallbackTimeout" type="number" min="20" max="30" step="1" />
               </div>
 
               <div class="field">
                 <label for="fallbackCandidates">Maximum candidates</label>
-                <input class="input" id="fallbackCandidates" type="number" min="1" max="10" step="1" />
+                <input class="input" id="fallbackCandidates" type="number" min="10" max="20" step="1" />
               </div>
 
               <div class="field">
                 <label for="fallbackMinimumKb">Minimum verified download (KB)</label>
-                <input class="input" id="fallbackMinimumKb" type="number" min="64" max="4096" step="64" />
+                <input class="input" id="fallbackMinimumKb" type="number" min="1024" max="4096" step="256" />
               </div>
             </div>
 
@@ -753,7 +769,7 @@
     let selectedProfileId = '';
     let settings = {
       profile: 'balanced',
-      fallback: { enabled: true, candidateTimeoutSeconds: 6, maximumCandidates: 3, minimumDownloadedKb: 256 },
+      fallback: { enabled: true, candidateTimeoutSeconds: 20, maximumCandidates: 10, minimumDownloadedKb: 1024 },
       midstream: { enabled: false, prebufferMb: 32, stallTimeoutSeconds: 30, segmentSeconds: 4, retentionHours: 12 },
       debrid: { enabled: false, provider: '', apiKey: '' }
     };
@@ -856,9 +872,9 @@
       document.getElementById('debridProvider').value = settings.debrid?.provider || '';
       document.getElementById('debridApiKey').value = settings.debrid?.apiKey || '';
       document.getElementById('fallbackEnabled').checked = settings.fallback?.enabled !== false;
-      document.getElementById('fallbackTimeout').value = settings.fallback?.candidateTimeoutSeconds || 6;
-      document.getElementById('fallbackCandidates').value = settings.fallback?.maximumCandidates || 3;
-      document.getElementById('fallbackMinimumKb').value = settings.fallback?.minimumDownloadedKb || 256;
+      document.getElementById('fallbackTimeout').value = Math.max(settings.fallback?.candidateTimeoutSeconds || 20, 20);
+      document.getElementById('fallbackCandidates').value = Math.max(settings.fallback?.maximumCandidates || 10, 10);
+      document.getElementById('fallbackMinimumKb').value = Math.max(settings.fallback?.minimumDownloadedKb || 1024, 1024);
       document.getElementById('playbackMethod').value = settings.playbackMethod || 'torrent';
       document.getElementById('midstreamPrebuffer').value = settings.midstream?.prebufferMb || 32;
       document.getElementById('midstreamStallTimeout').value = settings.midstream?.stallTimeoutSeconds || 30;
@@ -1066,7 +1082,13 @@
       const byId = new Map((data.addons || []).map(item => [item.addonId, item]));
       const healthSources = [...addons];
       if (settings.jackett?.enabled) {
-        healthSources.push({ id: 'jackett', instanceId: 'jackett', name: 'Jackett', version: 'built-in' });
+        healthSources.push({
+          id: 'jackett',
+          instanceId: 'jackett',
+          name: 'Jackett',
+          version: 'built-in',
+          logo: '/jackett.svg'
+        });
       }
       document.getElementById('healthGrid').innerHTML = healthSources.map(addon => {
         const health = byId.get(addon.instanceId) || byId.get(addon.id);

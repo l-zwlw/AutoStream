@@ -30,9 +30,9 @@ const defaultSettings = {
   profile: "balanced",
   fallback: {
     enabled: true,
-    candidateTimeoutSeconds: 6,
-    maximumCandidates: 5,
-    minimumDownloadedKb: 256
+    candidateTimeoutSeconds: 20,
+    maximumCandidates: 10,
+    minimumDownloadedKb: 1024
   },
   midstream: {
     enabled: false,
@@ -109,19 +109,19 @@ export function normalizeSettings(settings: any) {
       enabled: settings.fallback?.enabled !== false,
       candidateTimeoutSeconds: clamp(
         settings.fallback?.candidateTimeoutSeconds,
-        3,
-        8,
+        20,
+        30,
         defaultSettings.fallback.candidateTimeoutSeconds
       ),
       maximumCandidates: clamp(
         settings.fallback?.maximumCandidates,
-        1,
         10,
+        20,
         defaultSettings.fallback.maximumCandidates
       ),
       minimumDownloadedKb: clamp(
         settings.fallback?.minimumDownloadedKb,
-        64,
+        1024,
         4096,
         defaultSettings.fallback.minimumDownloadedKb
       )

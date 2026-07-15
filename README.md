@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version" src="https://img.shields.io/badge/stable-1.2.6-4dff9f" />
+  <img alt="Version" src="https://img.shields.io/badge/stable-1.2.7-4dff9f" />
   <img alt="Docker" src="https://img.shields.io/badge/Docker-GHCR-2496ed" />
   <img alt="License" src="https://img.shields.io/badge/license-MIT-4dff9f" />
 </p>
@@ -18,7 +18,7 @@
 
 AutoStream queries every enabled Stremio addon, combines their stream results, applies the selected playback profile, and returns exactly one result to Stremio.
 
-The optional qBittorrent startup check verifies the exact requested movie or episode. It has a six-second total budget; if verification cannot finish in time, AutoStream immediately returns the highest-ranked result instead of leaving Stremio loading.
+The optional qBittorrent startup check verifies the exact requested movie or episode. Candidates race in small batches and the first torrent that delivers enough fresh data wins. AutoStream never substitutes an unverified statistical guess when verification is enabled.
 
 ## Highlights
 
@@ -52,9 +52,9 @@ Query enabled addons
       ↓
 Rank all stream candidates
       ↓
-qBittorrent tests candidate 1
-      ├─ exact file receives data → return it
-      └─ timeout or failure → clean up and try candidate 2
+qBittorrent tests up to three candidates together
+      ├─ first exact file receiving verified data → return it
+      └─ no winner → clean up and test the next batch
 ```
 
 Torrent passthrough retains the bounded startup fallback. HTTP mode uses a full VOD playlist: Stremio can seek anywhere, AutoStream generates only requested segments, and a failed segment is retried from the next candidate at the same timestamp.
@@ -104,7 +104,7 @@ On first visit, create the dashboard password. Then open **Profiles**, create a 
 
 In your existing Jackett instance, add the public or private indexers you are
 allowed to use and copy its API key. In AutoStream, open the viewer profile
-under **Settings → Jackett torrent source**, enter the Jackett URL and API key,
+under **Addons → Jackett → Configure**, enter the Jackett URL and API key,
 then enable Jackett. If Jackett runs separately on the same Docker host, use
 `http://host.docker.internal:9117`. A LAN URL or private HTTPS URL also works.
 Do not expose Jackett directly to the public internet.
@@ -146,9 +146,11 @@ The Debrid profile scores streams already provided by debrid-enabled addons. Aut
 ## Fallback settings
 
 - **Automatic startup fallback:** enable or disable qBittorrent candidate testing
-- **Seconds per candidate:** 3–8 seconds
-- **Maximum candidates:** 1–10 candidates
-- **Minimum verified download:** 64–4096 KB
+- **Seconds per candidate:** 20–30 seconds
+- **Maximum candidates:** 10–20 candidates
+- **Minimum verified download:** 1024–4096 KB
+
+Candidates are tested in batches of at most three. Healthy torrents normally win before the full timeout. Successful selections are cached per movie or season for two hours, so later episodes and repeated requests can reuse the proven torrent immediately.
 
 For multi-file torrents, every unrelated file is assigned priority `0`; only the requested `fileIdx` receives maximum priority.
 

@@ -3,6 +3,8 @@ import test from "node:test";
 
 import { deduplicateStreams } from "../src/services/dedupe";
 import { rankStreams } from "../src/services/sorter";
+import { verifiedSelectionKey } from "../src/streams";
+import { fastestSuccessfulCandidate } from "../src/services/qbittorrent";
 
 test("deduplicates the same torrent and file index", () => {
   const streams = [
@@ -195,4 +197,45 @@ test("rejects an unlabelled dubbed release when a language allowlist is active",
   });
 
   assert.equal(ranked.length, 0);
+});
+
+test("verified selection cache is isolated per episode and settings", () => {
+  const settings = {
+    profile: "balanced",
+    rules: { minimumQuality: "720p" }
+  };
+
+  assert.notEqual(
+    verifiedSelectionKey("series", "tt8910922:4:1", settings),
+    verifiedSelectionKey("series", "tt8910922:4:2", settings)
+  );
+  assert.notEqual(
+    verifiedSelectionKey("series", "tt8910922:4:1", settings),
+    verifiedSelectionKey("series", "tt8910922:4:1", {
+      ...settings,
+      rules: { minimumQuality: "1080p" }
+    })
+  );
+});
+
+test("measured throughput beats statistical rank after candidates become playable", () => {
+  const statisticalWinner = {
+    id: "statistical",
+    rank: 0,
+    averageSpeed: 350_000,
+    newlyDownloadedBytes: 1_500_000,
+    attempt: { success: true }
+  };
+  const measuredWinner = {
+    id: "measured",
+    rank: 3,
+    averageSpeed: 1_800_000,
+    newlyDownloadedBytes: 5_000_000,
+    attempt: { success: true }
+  };
+
+  assert.equal(
+    fastestSuccessfulCandidate([statisticalWinner, measuredWinner])?.id,
+    "measured"
+  );
 });

@@ -67,6 +67,26 @@ export interface FallbackSelection {
   attempts: FallbackAttempt[];
 }
 
+type MeasuredCandidate = {
+  attempt: { success: boolean };
+  averageSpeed: number;
+  newlyDownloadedBytes: number;
+  rank: number;
+};
+
+export function fastestSuccessfulCandidate<T extends MeasuredCandidate>(
+  candidates: T[]
+) {
+  return [...candidates]
+    .filter((candidate) => candidate.attempt.success)
+    .sort(
+      (a, b) =>
+        b.averageSpeed - a.averageSpeed ||
+        b.newlyDownloadedBytes - a.newlyDownloadedBytes ||
+        a.rank - b.rank
+    )[0] || null;
+}
+
 export type FallbackOptions = {
   candidateTimeoutSeconds?: number;
   maximumCandidates?: number;
@@ -459,6 +479,7 @@ async function testCandidate(
   let selectedFileIndex: number | null = null;
   let metadataReady = false;
   let downloadedBaseline: number | null = null;
+  let measurementStartedAt: number | null = null;
 
   try {
     while (
@@ -497,6 +518,7 @@ async function testCandidate(
         // making a candidate look healthy.
         const configuredTorrent = await getTorrent(infoHash);
         downloadedBaseline = configuredTorrent?.downloaded ?? torrent.downloaded;
+        measurementStartedAt = Date.now();
 
         console.log(
           `qBittorrent restricted ${infoHash} to file index ${selectedFileIndex}`,
@@ -514,9 +536,15 @@ async function testCandidate(
         downloadedBaseline === null
           ? 0
           : Math.max(0, torrent.downloaded - downloadedBaseline);
+      const measurementSeconds =
+        measurementStartedAt === null
+          ? 0
+          : Math.max((Date.now() - measurementStartedAt) / 1000, 0.001);
+      const averageSpeed = newlyDownloadedBytes / measurementSeconds;
       const hasActivity =
         Boolean(selectedFile && selectedFile.priority > 0) &&
-        newlyDownloadedBytes >= options.minimumDownloadedBytes;
+        newlyDownloadedBytes >= options.minimumDownloadedBytes &&
+        measurementSeconds >= 4;
       const hasPeers =
         torrent.num_seeds > 0 ||
         torrent.num_leechs > 0 ||
@@ -525,8 +553,10 @@ async function testCandidate(
       if (hasMetadata && hasActivity && hasPeers) {
         return {
           success: true,
-          reason: `downloaded ${newlyDownloadedBytes} verified bytes from ${torrent.num_seeds} seeds at ${torrent.dlspeed} B/s`,
-          metadataReady: true
+          reason: `downloaded ${newlyDownloadedBytes} verified bytes from ${torrent.num_seeds} seeds at ${Math.round(averageSpeed)} B/s average`,
+          metadataReady: true,
+          newlyDownloadedBytes,
+          averageSpeed
         };
       }
 
@@ -538,7 +568,9 @@ async function testCandidate(
       reason: signal?.aborted
         ? "cancelled after another candidate succeeded"
         : `no usable data within ${options.candidateTimeoutMs / 1000} seconds`,
-      metadataReady
+      metadataReady,
+      newlyDownloadedBytes: 0,
+      averageSpeed: 0
     };
   } finally {
     if (createdByAutoStream) {
@@ -567,14 +599,17 @@ export async function selectFirstPlayableTorrent(
   type TestedCandidate = {
     candidate: TorrentCandidate;
     metadataReady: boolean;
+    rank: number;
+    newlyDownloadedBytes: number;
+    averageSpeed: number;
     attempt: FallbackAttempt;
   };
   const attempts: FallbackAttempt[] = [];
 
-  // Three candidates can establish metadata and useful throughput reliably;
-  // larger simultaneous swarms starve one another on typical home servers.
+  // Four candidates include the best practical alternatives across common
+  // quality levels without overloading a typical home server.
   // Duplicate Stremio requests share this race in streams.ts.
-  const batchSize = Math.min(3, candidates.length);
+  const batchSize = Math.min(4, candidates.length);
   for (let offset = 0; offset < candidates.length; offset += batchSize) {
     const batch = candidates.slice(offset, offset + batchSize);
     const deadline = Date.now() + options.candidateTimeoutMs;
@@ -586,7 +621,8 @@ export async function selectFirstPlayableTorrent(
       resolveWinner = resolve;
     });
 
-    const tasks = batch.map(async (candidate): Promise<TestedCandidate> => {
+    const successfulCandidates: TestedCandidate[] = [];
+    const tasks = batch.map(async (candidate, batchIndex): Promise<TestedCandidate> => {
       const infoHash = candidate.infoHash!.toLowerCase();
       let tested: TestedCandidate;
       try {
@@ -599,6 +635,9 @@ export async function selectFirstPlayableTorrent(
         tested = {
           candidate,
           metadataReady: result.metadataReady,
+          rank: offset + batchIndex,
+          newlyDownloadedBytes: result.newlyDownloadedBytes || 0,
+          averageSpeed: result.averageSpeed || 0,
           attempt: {
             infoHash,
             title: candidate.title || infoHash,
@@ -611,6 +650,9 @@ export async function selectFirstPlayableTorrent(
         tested = {
           candidate,
           metadataReady: false,
+          rank: offset + batchIndex,
+          newlyDownloadedBytes: 0,
+          averageSpeed: 0,
           attempt: {
             infoHash,
             title: candidate.title || infoHash,
@@ -628,9 +670,12 @@ export async function selectFirstPlayableTorrent(
       attempts.push(tested.attempt);
       remaining -= 1;
 
+      if (tested.attempt.success) {
+        successfulCandidates.push(tested);
+      }
+
       if (!settled && tested.attempt.success) {
         settled = true;
-        probeController.abort();
         resolveWinner(tested);
       } else if (!settled && remaining === 0) {
         settled = true;
@@ -641,9 +686,20 @@ export async function selectFirstPlayableTorrent(
     });
 
     const winner = await firstSuccess;
+    if (winner) {
+      // The first stream to become playable starts a short grace period. This
+      // keeps startup quick while allowing another already-active candidate to
+      // prove that it has materially better sustained throughput.
+      await Promise.race([
+        Promise.allSettled(tasks),
+        delay(2_000)
+      ]);
+      probeController.abort();
+    }
     await Promise.allSettled(tasks);
     if (winner) {
-      return { stream: winner.candidate, attempts };
+      const fastest = fastestSuccessfulCandidate(successfulCandidates) || winner;
+      return { stream: fastest.candidate, attempts };
     }
   }
 

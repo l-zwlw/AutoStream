@@ -1,6 +1,6 @@
 services:
   autostream:
-    image: ghcr.io/l-zwlw/autostream:1.2.7
+    image: ghcr.io/l-zwlw/autostream:1.2.8
     container_name: autostream
     ports:
       - "7001:7001"
@@ -22,7 +22,7 @@ services:
     restart: unless-stopped
 
   qbittorrent:
-    image: ghcr.io/l-zwlw/autostream-qbittorrent:1.2.7
+    image: ghcr.io/l-zwlw/autostream-qbittorrent:1.2.8
     container_name: autostream-qbittorrent
     environment:
       PUID: "1000"
@@ -40,7 +40,7 @@ services:
     restart: unless-stopped
 
   stream-engine:
-    image: ghcr.io/l-zwlw/autostream-stream-engine:1.2.7
+    image: ghcr.io/l-zwlw/autostream-stream-engine:1.2.8
     container_name: autostream-stream-engine
     environment:
       ENGINE_DOWNLOADS_PATH: "/downloads/engine"

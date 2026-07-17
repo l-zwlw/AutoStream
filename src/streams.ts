@@ -21,12 +21,22 @@ const verificationInFlight = new Map<
   string,
   ReturnType<typeof selectFirstPlayableTorrent>
 >();
-const verifiedSelectionLifetimeMs = 2 * 60 * 60 * 1000;
+const verifiedSelectionLifetimeMs = 30 * 60 * 1000;
 
-function verifiedSelectionKey(type: string, id: string, settings: any) {
-  const [imdbId, season] = id.split(":");
-  const content = type === "series" ? `${imdbId}:${season || ""}` : imdbId;
-  return `${type}:${content}:${settings.profile || "balanced"}`;
+export function verifiedSelectionKey(type: string, id: string, settings: any) {
+  const selectionSettings = {
+    profile: settings.profile || "balanced",
+    addonIds: settings.addonIds || [],
+    addonPriorities: settings.addonPriorities || {},
+    device: settings.device || {},
+    rules: settings.rules || {},
+    fallback: settings.fallback || {}
+  };
+
+  // A season pack can behave very differently for each file. Cache only the
+  // exact movie or episode and invalidate the result whenever selection
+  // settings change.
+  return `${type}:${id}:${JSON.stringify(selectionSettings)}`;
 }
 
 function activeVerificationKey(type: string, id: string, settings: any) {
@@ -165,7 +175,9 @@ export async function getStreams(
           }
         }
         for (const attempt of fallback.attempts) {
-          recordStreamOutcome(attempt.infoHash, attempt.success);
+          if (attempt.reason !== "cancelled after another candidate succeeded") {
+            recordStreamOutcome(attempt.infoHash, attempt.success);
+          }
         }
         if (!fallback.stream) {
           console.warn("No torrent delivered usable video data during verification");
@@ -248,7 +260,9 @@ export async function getStreams(
     );
 
     for (const attempt of fallback.attempts) {
-      recordStreamOutcome(attempt.infoHash, attempt.success);
+      if (attempt.reason !== "cancelled after another candidate succeeded") {
+        recordStreamOutcome(attempt.infoHash, attempt.success);
+      }
     }
 
     if (fallback.stream) {

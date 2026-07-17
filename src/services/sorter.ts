@@ -62,6 +62,14 @@ function isBadStream(text: string) {
   );
 }
 
+function isMultiSeasonPack(text: string) {
+  const normalized = text.replace(/[._+()[\]{}]/g, " ");
+  return (
+    /\bs\d{1,2}\s*[-–]\s*s\d{1,2}\b/i.test(normalized) ||
+    /\bseasons?\s*:?\s*\d{1,2}\s*(?:[-–]|to)\s*\d{1,2}\b/i.test(normalized)
+  );
+}
+
 function getQuality(text: string) {
   if (text.includes("2160p") || text.includes("4k")) return "4k";
   if (text.includes("1080p")) return "1080p";
@@ -309,6 +317,12 @@ export function rankStreams(streams: any[], settings: Settings = {}) {
       score += getAddonReliability(stream._autostreamAddonId) * 30;
       score += getStreamReliability(stream.infoHash) * 30;
       score += Number(settings.addonPriorities?.[stream._autostreamAddonId] || 0) * 10;
+
+      // Large multi-season packs often look healthy by aggregate seeder count,
+      // but are slower to resolve and less reliable in Stremio than an exact
+      // episode or single-season pack. Keep them as fallback candidates rather
+      // than letting them dominate the first verification batch.
+      if (isMultiSeasonPack(text)) score -= 400;
 
       if (rules.preferHdr && /hdr|dolby vision|\bdv\b/i.test(text)) score += 20;
       if (rules.preferredCodec === "hevc" && /hevc|x265|h.?265/i.test(text)) score += 18;

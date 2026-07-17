@@ -239,3 +239,27 @@ test("measured throughput beats statistical rank after candidates become playabl
     "measured"
   );
 });
+
+test("single-season releases are verified before large multi-season packs", () => {
+  const multiSeason = {
+    infoHash: "a".repeat(40),
+    title: "Solar.Opposites.S01-S06.Specials.1080p.WEB-DL 👤 28 💾 609 MB"
+  };
+  const singleSeason = {
+    infoHash: "b".repeat(40),
+    title: "Solar.Opposites.S04.COMPLETE.1080p.WEB-DL 👤 14 💾 412 MB"
+  };
+
+  const ranked = rankStreams([multiSeason, singleSeason], {
+    profile: "balanced",
+    rules: {
+      minimumQuality: "720p",
+      maximumQuality: "4k",
+      maximumSizeGb: 0,
+      minimumSeeders: 0,
+      allowRemux: true
+    }
+  });
+
+  assert.equal(ranked[0].infoHash, singleSeason.infoHash);
+});

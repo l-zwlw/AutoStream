@@ -1,5 +1,4 @@
 type Settings = {
-  profile?: string;
   addonPriorities?: Record<string, number>;
   device?: Record<string, any>;
   rules?: Record<string, any>;
@@ -163,32 +162,8 @@ function qualityValue(quality: string) {
   return qualityRank[quality] ?? 0;
 }
 
-function getQualityScore(text: string, profile: string) {
+function getQualityScore(text: string) {
   const quality = getQuality(text);
-
-  if (profile === "debrid") {
-    if (quality === "4k") return 135;
-    if (quality === "1080p") return 85;
-    if (quality === "720p") return 35;
-  }
-
-  if (profile === "homeTheater") {
-    if (quality === "4k") return 120;
-    if (quality === "1080p") return 70;
-    if (quality === "720p") return 35;
-  }
-
-  if (profile === "mobile") {
-    if (quality === "720p") return 90;
-    if (quality === "1080p") return 80;
-    if (quality === "4k") return 20;
-  }
-
-  if (profile === "fastest") {
-    if (quality === "720p") return 80;
-    if (quality === "1080p") return 75;
-    if (quality === "4k") return 35;
-  }
 
   if (quality === "1080p") return 90;
   if (quality === "4k") return 75;
@@ -197,39 +172,8 @@ function getQualityScore(text: string, profile: string) {
   return 0;
 }
 
-function getSizeScore(sizeGb: number, profile: string) {
-  if (!sizeGb) return profile === "debrid" ? 0 : -40;
-
-  if (profile === "debrid") {
-    if (sizeGb <= 8) return 5;
-    if (sizeGb <= 80) return 0;
-    return -5;
-  }
-
-  if (profile === "homeTheater") {
-    if (sizeGb <= 8) return 10;
-    if (sizeGb <= 20) return 15;
-    if (sizeGb <= 50) return 10;
-    return -5;
-  }
-
-  if (profile === "mobile") {
-    if (sizeGb <= 1.5) return 200;
-    if (sizeGb <= 3) return 170;
-    if (sizeGb <= 6) return 100;
-    if (sizeGb <= 10) return 20;
-    if (sizeGb <= 20) return -120;
-    return -300;
-  }
-
-  if (profile === "fastest") {
-    if (sizeGb <= 1.5) return 220;
-    if (sizeGb <= 3) return 190;
-    if (sizeGb <= 6) return 120;
-    if (sizeGb <= 10) return 40;
-    if (sizeGb <= 20) return -100;
-    return -320;
-  }
+function getSizeScore(sizeGb: number) {
+  if (!sizeGb) return -40;
 
   if (sizeGb <= 1.5) return 180;
   if (sizeGb <= 3) return 160;
@@ -240,12 +184,9 @@ function getSizeScore(sizeGb: number, profile: string) {
   return -300;
 }
 
-function getSeederScore(seeders: number, profile: string) {
+function getSeederScore(seeders: number) {
   if (!seeders) return 0;
-
-  if (profile === "debrid") return Math.min(seeders, 25);
-  const weight = profile === "homeTheater" ? 95 : profile === "fastest" ? 155 : 135;
-  return Math.log2(seeders + 1) * weight;
+  return Math.log2(seeders + 1) * 135;
 }
 
 function getDebridScore(text: string) {
@@ -266,9 +207,11 @@ export function rankStreams(streams: any[], settings: Settings = {}) {
     return [];
   }
 
-  const profile = settings.profile || "balanced";
-  const debridConfigured = Boolean(settings.debrid?.provider && settings.debrid?.apiKey);
-  const effectiveProfile = profile === "debrid" && debridConfigured ? "debrid" : profile;
+  const debridConfigured = Boolean(
+    settings.debrid?.enabled &&
+    settings.debrid?.provider &&
+    settings.debrid?.apiKey
+  );
   const rules = settings.rules || {};
   const device = settings.device || {};
 
@@ -308,10 +251,10 @@ export function rankStreams(streams: any[], settings: Settings = {}) {
       const seeders = getSeeders(text);
       const sizeGb = getSizeGb(text);
 
-      score += getQualityScore(text, effectiveProfile);
-      score += getSizeScore(sizeGb, effectiveProfile);
-      score += getSeederScore(seeders, effectiveProfile);
-      if (stream.infoHash && seeders === 0 && effectiveProfile !== "debrid") {
+      score += getQualityScore(text);
+      score += getSizeScore(sizeGb);
+      score += getSeederScore(seeders);
+      if (stream.infoHash && seeders === 0 && !debridConfigured) {
         score -= 180;
       }
       score += getAddonReliability(stream._autostreamAddonId) * 30;
@@ -329,29 +272,29 @@ export function rankStreams(streams: any[], settings: Settings = {}) {
       if (rules.preferredCodec === "av1" && /\bav1\b/i.test(text)) score += 18;
       if (rules.preferredCodec === "h264" && /h.?264|x264|avc/i.test(text)) score += 18;
 
-      if (effectiveProfile === "debrid") {
+      if (debridConfigured) {
         score += getDebridScore(text);
       }
 
-      if (text.includes("remux")) score += effectiveProfile === "debrid" || effectiveProfile === "homeTheater" ? 45 : 5;
+      if (text.includes("remux")) score += debridConfigured ? 45 : 5;
       if (text.includes("bluray") || text.includes("blu-ray")) score += 20;
       if (text.includes("web-dl")) score += 15;
       if (text.includes("webrip")) score += 5;
 
-      if (text.includes("dolby vision") || text.includes(" dv ")) score += effectiveProfile === "debrid" || effectiveProfile === "homeTheater" ? 30 : 8;
-      if (text.includes("hdr10+")) score += effectiveProfile === "debrid" || effectiveProfile === "homeTheater" ? 25 : 6;
-      if (text.includes("hdr")) score += effectiveProfile === "debrid" || effectiveProfile === "homeTheater" ? 18 : 5;
+      if (text.includes("dolby vision") || text.includes(" dv ")) score += debridConfigured ? 30 : 8;
+      if (text.includes("hdr10+")) score += debridConfigured ? 25 : 6;
+      if (text.includes("hdr")) score += debridConfigured ? 18 : 5;
 
       if (text.includes("hevc") || text.includes("x265") || text.includes("h265")) score += 10;
       if (text.includes("av1")) score += 8;
       if (text.includes("x264") || text.includes("h264")) score += 4;
 
-      if (text.includes("atmos")) score += effectiveProfile === "debrid" || effectiveProfile === "homeTheater" ? 20 : 3;
-      if (text.includes("truehd")) score += effectiveProfile === "debrid" || effectiveProfile === "homeTheater" ? 15 : 2;
-      if (text.includes("dts-hd")) score += effectiveProfile === "debrid" || effectiveProfile === "homeTheater" ? 15 : 2;
+      if (text.includes("atmos")) score += debridConfigured ? 20 : 3;
+      if (text.includes("truehd")) score += debridConfigured ? 15 : 2;
+      if (text.includes("dts-hd")) score += debridConfigured ? 15 : 2;
 
       if (seeders > 0 && seeders < 5) {
-        score -= effectiveProfile === "debrid" || effectiveProfile === "homeTheater" ? 10 : 30;
+        score -= debridConfigured ? 10 : 30;
       }
 
       return {
@@ -365,7 +308,7 @@ export function rankStreams(streams: any[], settings: Settings = {}) {
     return [];
   }
 
-  console.log("Profile:", effectiveProfile);
+  console.log("Selection mode:", debridConfigured ? "debrid-aware" : "rules-based");
   return scored.map((item) => item.stream);
 }
 

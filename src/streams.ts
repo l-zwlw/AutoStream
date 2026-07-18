@@ -25,7 +25,6 @@ const verifiedSelectionLifetimeMs = 30 * 60 * 1000;
 
 export function verifiedSelectionKey(type: string, id: string, settings: any) {
   const selectionSettings = {
-    profile: settings.profile || "balanced",
     addonIds: settings.addonIds || [],
     addonPriorities: settings.addonPriorities || {},
     device: settings.device || {},
@@ -40,38 +39,21 @@ export function verifiedSelectionKey(type: string, id: string, settings: any) {
 }
 
 function activeVerificationKey(type: string, id: string, settings: any) {
-  return `${type}:${id}:${settings.profile || "balanced"}`;
-}
-
-function getProfileName(profile: string) {
-  switch (profile) {
-    case "balanced":
-      return "⚖️ Balanced";
-
-    case "fastest":
-      return "⚡ Fastest";
-
-    case "mobile":
-      return "📱 Mobile";
-
-    case "homeTheater":
-      return "🎬 Home Theater";
-
-    case "debrid":
-      return "💎 Debrid";
-
-    default:
-      return "⚖️ Balanced";
-  }
+  return `${type}:${id}`;
 }
 
 export async function getStreams(
   type: string,
   id: string,
   publicBaseUrl?: string,
-  profileSettings?: any
+  settingsOverride?: any
 ) {
-  const settings = profileSettings || getSettings();
+  const settings = settingsOverride || getSettings();
+  const debridMode = Boolean(
+    settings.debrid?.enabled &&
+    settings.debrid?.provider &&
+    settings.debrid?.apiKey
+  );
   const loadJackettStreams = async () => {
     const startedAt = Date.now();
     try {
@@ -201,7 +183,7 @@ export async function getStreams(
         ...Object.fromEntries(
           Object.entries(stream).filter(([key]) => !key.startsWith("_autostream"))
         ),
-        name: getProfileName(settings.profile),
+        name: "AutoStream",
         title: "🍿",
         behaviorHints: {
           ...stream.behaviorHints
@@ -216,20 +198,20 @@ export async function getStreams(
     publicBaseUrl &&
     experimentalHttpEnabled &&
     qbittorrent.online &&
-    settings.profile !== "debrid" &&
+    !debridMode &&
     settings.playbackMethod === "http" &&
     settings.midstream?.enabled === true
   ) {
     try {
       const session = createVodSession(
-        `${type}:${id}:${settings.profile}`,
+        `${type}:${id}`,
         ranked,
         settings.midstream
       );
 
       return [
         {
-          name: `${getProfileName(settings.profile)} · Auto fallback`,
+          name: "AutoStream · Auto fallback",
           title: "🍿 HTTP stream",
           url: `${publicBaseUrl}/play/${session.id}/index.m3u8`,
           behaviorHints: {
@@ -251,7 +233,7 @@ export async function getStreams(
 
   if (
     qbittorrent.online &&
-    settings.profile !== "debrid" &&
+    !debridMode &&
     settings.fallback?.enabled !== false
   ) {
     const fallback = await selectFirstPlayableTorrent(
@@ -281,7 +263,7 @@ export async function getStreams(
       ),
 
       // What the user sees in Stremio
-      name: getProfileName(settings.profile),
+      name: "AutoStream",
 
       title: "🍿",
 

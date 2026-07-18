@@ -2,7 +2,8 @@ import fs from "fs";
 import path from "path";
 import crypto from "node:crypto";
 
-const addonsFile = path.join(process.cwd(), "data/addons.json");
+const dataRoot = process.env.AUTOSTREAM_DATA_PATH || path.join(process.cwd(), "data");
+const addonsFile = path.join(dataRoot, "addons.json");
 
 export function getAddons() {
   if (!fs.existsSync(addonsFile)) {
@@ -26,6 +27,7 @@ export function getAddons() {
 }
 
 export function saveAddons(addons: any[]) {
+  fs.mkdirSync(dataRoot, { recursive: true });
   fs.writeFileSync(addonsFile, JSON.stringify(addons, null, 2));
 }
 

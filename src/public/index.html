@@ -300,8 +300,6 @@
     .field label { font-size: 13px; color: var(--muted); font-weight: 750; }
     .hint { color: var(--muted-2); font-size: 12px; line-height: 1.45; }
     .badge { display: inline-flex; align-items: center; margin-left: 8px; padding: 3px 8px; border: 1px solid rgba(120,87,255,.45); border-radius: 999px; color: #b8a9ff; font-size: 10px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; vertical-align: middle; }
-    .debrid-panel { display: none; margin-top: 18px; padding-top: 18px; border-top: 1px solid var(--border); }
-    .debrid-panel.visible { display: block; }
     .check-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 18px; }
     .check-row input { width: 20px; height: 20px; accent-color: var(--blue); }
 
@@ -439,9 +437,9 @@
               <div class="stat-note">Enabled or disabled addon sources.</div>
             </div>
             <div class="card stat">
-              <div class="stat-label">Stream preset</div>
-              <div class="stat-value" id="profileValue">Balanced</div>
-              <div class="stat-note">Used to choose the best stream.</div>
+              <div class="stat-label">Selection engine</div>
+              <div class="stat-value">Rules-based</div>
+              <div class="stat-note">Uses your quality, language and device rules.</div>
             </div>
             <div class="card stat">
               <div class="stat-label">Fallback engine</div>
@@ -497,23 +495,10 @@
 
           <div class="settings-grid">
             <div class="card card-pad">
-              <h2>Stream preset</h2>
-              <p class="hint" style="margin-top:8px;">Choose how AutoStream decides what the best stream is. Normal preferences prioritize verified availability, seed health and a practical file size before resolution or premium formats.</p>
+              <h2>Debrid addon mode</h2>
+              <p class="hint" style="margin-top:8px;">Optional. Use this only with addons that already return cached debrid streams. AutoStream does not resolve debrid links itself yet.</p>
 
-              <div class="field">
-                <label for="profileSelect">Stream preference</label>
-                <select class="select" id="profileSelect">
-                  <option value="balanced">Balanced</option>
-                  <option value="fastest">Fastest</option>
-                  <option value="mobile">Mobile</option>
-                  <option value="homeTheater">Home Theater</option>
-                  <option value="debrid">Debrid</option>
-                </select>
-              </div>
-
-              <div class="debrid-panel" id="debridPanel">
-                <h2>Debrid</h2>
-                <p class="hint" style="margin-top:8px;">Use this preset with addons that already return cached debrid streams. AutoStream does not resolve debrid links itself yet.</p>
+              <div class="check-row"><label for="debridEnabled">Enable debrid-aware selection</label><input id="debridEnabled" type="checkbox" /></div>
 
                 <div class="field">
                   <label for="debridProvider">Provider</label>
@@ -529,8 +514,6 @@
                   <label for="debridApiKey">API key</label>
                   <input class="input" id="debridApiKey" type="password" placeholder="Paste API key" />
                 </div>
-              </div>
-
             </div>
 
             <div class="card card-pad">
@@ -540,7 +523,7 @@
               <div class="check-row">
                 <div>
                   <label for="fallbackEnabled">Automatic startup fallback</label>
-                  <p class="hint" style="margin-top:4px;">Disabled automatically for the Debrid preset.</p>
+                  <p class="hint" style="margin-top:4px;">Disabled automatically when debrid addon mode is enabled.</p>
                 </div>
                 <input id="fallbackEnabled" type="checkbox" />
               </div>
@@ -564,7 +547,6 @@
             <div class="card card-pad">
               <h2>Device</h2>
               <p class="hint" style="margin-top:8px;">Prevent formats the playback device cannot play.</p>
-              <div class="field"><label for="devicePreset">Preset</label><select class="select" id="devicePreset"><option value="automatic">Automatic</option><option value="mobile">Mobile</option><option value="legacyTv">Legacy TV</option><option value="homeTheater">Home Theater</option></select></div>
               <div class="check-row"><label for="supports4k">4K</label><input id="supports4k" type="checkbox" /></div>
               <div class="check-row"><label for="supportsHdr">HDR</label><input id="supportsHdr" type="checkbox" /></div>
               <div class="check-row"><label for="supportsDolbyVision">Dolby Vision</label><input id="supportsDolbyVision" type="checkbox" /></div>
@@ -608,7 +590,7 @@
             <div class="card card-pad">
               <h2>Addon selection</h2>
               <p class="hint" style="margin-top:8px;">Leave every box checked to use all shared addons.</p>
-              <div id="profileAddonList"></div>
+              <div id="addonSelectionList"></div>
             </div>
 
             <div class="card card-pad">
@@ -667,6 +649,14 @@
               <a class="btn btn-primary" id="openBrowserPlayerBtn" href="#" target="_blank" rel="noreferrer" style="margin-top:16px;">Open browser player</a>
               <p class="hint" style="margin-top:12px;">Use the same LAN URL on every device. Do not use localhost on one device and the LAN address on another.</p>
             </div>
+
+            <div class="card card-pad">
+              <h2>Dashboard password</h2>
+              <p class="hint" style="margin-top:8px;">Change the administrator password for this AutoStream installation.</p>
+              <div class="field"><label for="newDashboardPassword">New password</label><input class="input" id="newDashboardPassword" type="password" minlength="10" autocomplete="new-password" /></div>
+              <div class="field"><label for="confirmDashboardPassword">Confirm new password</label><input class="input" id="confirmDashboardPassword" type="password" minlength="10" autocomplete="new-password" /></div>
+              <button class="btn" id="changePasswordBtn">Change password</button>
+            </div>
           </div>
         </div>
 
@@ -694,7 +684,7 @@
       <p>Paste a Stremio addon URL. AutoStream will read the manifest and save its name, logo, version, and description.</p>
       <div class="field">
         <label for="addonUrlInput">Addon URL</label>
-        <input class="input" id="addonUrlInput" placeholder="https://torrentio.strem.fun" />
+        <input class="input" id="addonUrlInput" placeholder="https://your-addon.example/manifest.json" />
       </div>
       <div class="modal-actions">
         <button class="btn" id="cancelModalBtn">Cancel</button>
@@ -732,18 +722,9 @@
 
     let addons = [];
     let settings = {
-      profile: 'balanced',
       fallback: { enabled: true, candidateTimeoutSeconds: 20, maximumCandidates: 10, minimumDownloadedKb: 1024 },
       midstream: { enabled: false, prebufferMb: 32, stallTimeoutSeconds: 30, segmentSeconds: 4, retentionHours: 12 },
       debrid: { enabled: false, provider: '', apiKey: '' }
-    };
-
-    const profileLabels = {
-      balanced: 'Balanced',
-      fastest: 'Fastest',
-      mobile: 'Mobile',
-      homeTheater: 'Home Theater',
-      debrid: 'Debrid'
     };
 
     function toast(title, message) {
@@ -794,7 +775,6 @@
         const data = await res.json();
         document.getElementById('statusValue').textContent = data.status === 'online' ? 'Online' : 'Offline';
         document.getElementById('addonCount').textContent = data.addons ?? addons.length;
-        document.getElementById('profileValue').textContent = profileLabels[data.profile] || data.profile || 'Balanced';
         document.getElementById('sidebarStatus').textContent = data.status === 'online' ? 'Server online' : 'Server offline';
         const versionLabel = `v${data.version || 'unknown'} · ${data.releaseChannel || 'Unknown'}`;
         document.getElementById('brandVersion').textContent = versionLabel;
@@ -836,7 +816,7 @@
       const response = await fetch(API.settings);
       if (!response.ok) return;
       settings = await response.json();
-      document.getElementById('profileSelect').value = settings.profile || 'balanced';
+      document.getElementById('debridEnabled').checked = settings.debrid?.enabled === true;
       document.getElementById('debridProvider').value = settings.debrid?.provider || '';
       document.getElementById('debridApiKey').value = settings.debrid?.apiKey || '';
       document.getElementById('fallbackEnabled').checked = settings.fallback?.enabled !== false;
@@ -848,7 +828,6 @@
       document.getElementById('midstreamStallTimeout').value = settings.midstream?.stallTimeoutSeconds || 30;
       document.getElementById('midstreamSegmentSeconds').value = settings.midstream?.segmentSeconds || 4;
       document.getElementById('midstreamRetentionHours').value = settings.midstream?.retentionHours || 12;
-      document.getElementById('devicePreset').value = settings.device?.preset || 'automatic';
       for (const key of ['supports4k','supportsHdr','supportsDolbyVision','supportsHevc','supportsAv1']) {
         document.getElementById(key).checked = settings.device?.[key] !== false;
       }
@@ -867,27 +846,23 @@
       document.getElementById('jackettIndexer').value = settings.jackett?.indexer || 'all';
       const jackettUrl = settings.jackett?.url || '';
       document.getElementById('openJackettBtn').href = jackettUrl.replace('host.docker.internal', window.location.hostname) || '#';
-      renderProfileAddons();
+      renderAddonSelection();
       renderAddons();
-      updateDebridPanel();
       updatePlaybackPanel();
       setInstallUrls();
     }
 
     async function saveSettings() {
-      const profile = document.getElementById('profileSelect').value;
       const body = {
         playbackMethod: document.getElementById('playbackMethod').value,
-        profile,
         addonIds: addons
-          .filter((addon, index) => document.getElementById(`profileAddon-${index}`)?.checked)
+          .filter((addon, index) => document.getElementById(`addonSelection-${index}`)?.checked)
           .map(addon => addon.instanceId),
         addonSelectionConfigured: true,
         addonPriorities: Object.fromEntries(
-          addons.map((addon, index) => [addon.instanceId, Number(document.getElementById(`profileAddonPriority-${index}`)?.value || 0)])
+          addons.map((addon, index) => [addon.instanceId, Number(document.getElementById(`addonPriority-${index}`)?.value || 0)])
         ),
         device: {
-          preset: document.getElementById('devicePreset').value,
           supports4k: document.getElementById('supports4k').checked,
           supportsHdr: document.getElementById('supportsHdr').checked,
           supportsDolbyVision: document.getElementById('supportsDolbyVision').checked,
@@ -918,7 +893,7 @@
           retentionHours: Number(document.getElementById('midstreamRetentionHours').value)
         },
         debrid: {
-          enabled: profile === 'debrid',
+          enabled: document.getElementById('debridEnabled').checked,
           provider: document.getElementById('debridProvider').value,
           apiKey: document.getElementById('debridApiKey').value
         },
@@ -969,9 +944,21 @@
       toast('Saved', 'Jackett settings updated.');
     }
 
-    function updateDebridPanel() {
-      const profile = document.getElementById('profileSelect').value;
-      document.getElementById('debridPanel').classList.toggle('visible', profile === 'debrid');
+    async function changeDashboardPassword() {
+      const password = document.getElementById('newDashboardPassword').value;
+      const confirmation = document.getElementById('confirmDashboardPassword').value;
+      if (password.length < 10) return toast('Password not changed', 'Use at least 10 characters.');
+      if (password !== confirmation) return toast('Password not changed', 'The passwords do not match.');
+      const response = await fetch('/api/auth/password', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password, confirmation })
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) return toast('Password not changed', data.error || 'Could not change password.');
+      document.getElementById('newDashboardPassword').value = '';
+      document.getElementById('confirmDashboardPassword').value = '';
+      toast('Password changed', 'Your new dashboard password is active.');
     }
 
     function updatePlaybackPanel() {
@@ -984,15 +971,15 @@
       addons = await res.json();
       renderAddons();
       document.getElementById('addonCount').textContent = addons.length;
-      renderProfileAddons();
+      renderAddonSelection();
     }
 
-    function renderProfileAddons() {
-      const target = document.getElementById('profileAddonList');
+    function renderAddonSelection() {
+      const target = document.getElementById('addonSelectionList');
       if (!target) return;
       const selected = settings.addonIds || [];
       target.innerHTML = addons.map((addon, index) => `
-        <div class="check-row"><label for="profileAddon-${index}">${escapeHtml(addon.name)}</label><div style="display:flex;align-items:center;gap:10px"><input class="input" id="profileAddonPriority-${index}" type="number" min="-10" max="10" value="${Number(settings.addonPriorities?.[addon.instanceId] || 0)}" title="Priority -10 to 10" style="width:74px;padding:8px" /><input id="profileAddon-${index}" type="checkbox" ${!settings.addonSelectionConfigured || selected.includes(addon.instanceId) ? 'checked' : ''} /></div></div>
+        <div class="check-row"><label for="addonSelection-${index}">${escapeHtml(addon.name)}</label><div style="display:flex;align-items:center;gap:10px"><input class="input" id="addonPriority-${index}" type="number" min="-10" max="10" value="${Number(settings.addonPriorities?.[addon.instanceId] || 0)}" title="Priority -10 to 10" style="width:74px;padding:8px" /><input id="addonSelection-${index}" type="checkbox" ${!settings.addonSelectionConfigured || selected.includes(addon.instanceId) ? 'checked' : ''} /></div></div>
       `).join('') || '<p class="hint">Add shared addons from the Addons page first.</p>';
     }
 
@@ -1080,16 +1067,6 @@
         await init(); toast('Backup restored', `${data.restored.length} data file(s) restored.`);
       } catch (error) { toast('Restore failed', error.message || 'Invalid backup file.'); }
       event.target.value = '';
-    }
-
-    function applyDevicePreset() {
-      const preset = document.getElementById('devicePreset').value;
-      const values = preset === 'mobile'
-        ? [false, false, false, true, true]
-        : preset === 'legacyTv'
-          ? [false, false, false, false, false]
-          : [true, true, true, true, true];
-      ['supports4k','supportsHdr','supportsDolbyVision','supportsHevc','supportsAv1'].forEach((key, index) => document.getElementById(key).checked = values[index]);
     }
 
     function renderAddons() {
@@ -1239,11 +1216,10 @@
     document.getElementById('jackettModalBackdrop').addEventListener('click', e => { if (e.target.id === 'jackettModalBackdrop') closeJackettModal(); });
     document.getElementById('addAddonBtn').addEventListener('click', addAddon);
     document.getElementById('addonSearch').addEventListener('input', renderAddons);
-    document.getElementById('profileSelect').addEventListener('change', updateDebridPanel);
     document.getElementById('playbackMethod').addEventListener('change', updatePlaybackPanel);
     document.getElementById('saveSettingsBtn').addEventListener('click', saveSettings);
     document.getElementById('saveJackettBtn').addEventListener('click', saveJackettSettings);
-    document.getElementById('devicePreset').addEventListener('change', applyDevicePreset);
+    document.getElementById('changePasswordBtn').addEventListener('click', changeDashboardPassword);
     document.getElementById('testAddonsBtn').addEventListener('click', testAllAddons);
     document.getElementById('clearCacheBtn').addEventListener('click', clearCache);
     document.getElementById('saveCacheSettingsBtn').addEventListener('click', saveCacheLimit);

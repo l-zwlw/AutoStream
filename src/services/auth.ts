@@ -2,10 +2,15 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 
-const authFile = path.join(process.cwd(), "data/auth.json");
+const dataRoot = process.env.AUTOSTREAM_DATA_PATH || path.join(process.cwd(), "data");
+const authFile = path.join(dataRoot, "auth.json");
 const sessions = new Map<string, number>();
 const attempts = new Map<string, { count: number; blockedUntil: number }>();
 const sessionLifetimeMs = 30 * 24 * 60 * 60 * 1000;
+
+function ensureAuthDirectory() {
+  fs.mkdirSync(path.dirname(authFile), { recursive: true });
+}
 
 type StoredAuth = {
   salt: string;
@@ -38,6 +43,7 @@ export function setPassword(password: string) {
     throw new Error("Use at least 10 characters");
   }
   const salt = crypto.randomBytes(24).toString("hex");
+  ensureAuthDirectory();
   fs.writeFileSync(
     authFile,
     JSON.stringify({ salt, hash: derive(password, salt) }, null, 2),

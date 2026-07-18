@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version" src="https://img.shields.io/badge/stable-1.3.0-4dff9f" />
+  <img alt="Version" src="https://img.shields.io/badge/stable-1.3.1-4dff9f" />
   <img alt="Docker" src="https://img.shields.io/badge/Docker-GHCR-2496ed" />
   <img alt="License" src="https://img.shields.io/badge/license-MIT-4dff9f" />
 </p>
@@ -18,6 +18,9 @@
 
 AutoStream queries every enabled Stremio addon, combines their stream results, applies your global stream settings, and returns exactly one result to Stremio.
 
+AutoStream does not bundle or preinstall content-source addons. Add only the
+Stremio addon manifest URLs you choose from the dashboard.
+
 The optional qBittorrent startup check verifies the exact requested movie or episode. Candidates race in small batches and the first torrent that delivers enough fresh data wins. AutoStream never substitutes an unverified statistical guess when verification is enabled.
 
 ## Highlights
@@ -25,7 +28,7 @@ The optional qBittorrent startup check verifies the exact requested movie or epi
 - One clean result in Stremio
 - Any standard Stremio stream addon can be added by manifest URL
 - Addon names, descriptions, versions, and logos are detected automatically
-- Balanced, Fastest, Mobile, Home Theater, and Debrid stream presets
+- Rules-based selection using quality, size, seed, language, codec and device settings
 - qBittorrent startup-fallback with configurable timeouts
 - Movie collections and season packs restricted to the requested `fileIdx`
 - Temporary fallback torrents and files removed automatically
@@ -153,17 +156,13 @@ docker compose up -d
 | qBittorrent configuration | `./qbittorrent` | Persistent internal engine settings |
 | Stremio Server data | `./stremio-data` | Browser-player cache and server settings |
 
-## Stream presets
+## Stream selection
 
-| Preset | Intended behavior |
-| --- | --- |
-| Balanced | Good quality, reasonable size, and healthy availability |
-| Fastest | Smaller files and strong availability |
-| Mobile | Bandwidth-friendly 720p/1080p results |
-| Home Theater | 4K, HDR, REMUX, and premium audio bonuses |
-| Debrid | Highest-quality cached/debrid results returned by configured addons |
-
-The Debrid preset scores streams already provided by debrid-enabled addons. AutoStream does not currently resolve debrid links itself.
+There are no opaque stream presets. AutoStream uses the concrete settings you
+choose: minimum and maximum quality, maximum size, minimum seeders, allowed
+audio languages, codec preference, HDR preference, device capabilities and
+addon priority. Actual startup download performance decides which verified
+torrent wins. Optional debrid-aware selection is configured separately.
 
 ## Fallback settings
 

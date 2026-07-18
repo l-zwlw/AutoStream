@@ -23,6 +23,8 @@ build/
 *.code-workspace
 
 # Docker / local runtime
+data/addons.json
+data/settings.json
 data/*.local.json
 data/profiles.json
 data/profiles.legacy*.json

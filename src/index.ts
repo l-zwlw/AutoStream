@@ -131,6 +131,24 @@ app.use("/api", (req, res, next) => {
   res.status(401).json({ error: "Dashboard login required" });
 });
 
+app.patch("/api/auth/password", (req, res) => {
+  const password = String(req.body?.password || "");
+  const confirmation = String(req.body?.confirmation || "");
+  if (password !== confirmation) {
+    return res.status(400).json({ error: "Passwords do not match" });
+  }
+  try {
+    setPassword(password);
+    const token = createSession();
+    setSessionCookie(req, res, token);
+    res.json({ success: true });
+  } catch (error) {
+    res.status(400).json({
+      error: error instanceof Error ? error.message : "Could not change password"
+    });
+  }
+});
+
 app.get("/", (req, res) => {
   if (!isValidSession(dashboardSession(req))) return res.redirect("/login");
   res.sendFile(path.join(process.cwd(), "src/public/index.html"));
@@ -195,20 +213,24 @@ app.get("/p/:profileId/stream/:type/:id.json", async (req, res) => {
 app.get("/api/status", async (req, res) => {
   const settings = getSettings();
   const qbittorrent = await getQBittorrentStatus();
+  const debridMode = Boolean(
+    settings.debrid?.enabled &&
+    settings.debrid?.provider &&
+    settings.debrid?.apiKey
+  );
 
   res.json({
     status: "online",
     version: APP_VERSION,
     releaseChannel: RELEASE_CHANNEL,
     addons: getAddons().length,
-    profile: settings.profile || "balanced",
-    debridEnabled: settings.debrid?.enabled || false,
+    debridEnabled: debridMode,
     fallbackEnabled:
       settings.fallback?.enabled !== false &&
-      settings.profile !== "debrid",
+      !debridMode,
     midstreamEnabled:
       settings.playbackMethod === "http" &&
-      settings.profile !== "debrid",
+      !debridMode,
     streamingSessions: getVodStatus().sessions,
     httpStreamingAvailable: experimentalHttpEnabled,
     streamEngine: await getStreamEngineStatus(),

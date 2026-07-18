@@ -6,13 +6,16 @@ const settingsFile = path.join(dataRoot, "settings.json");
 const legacyProfilesFile = path.join(dataRoot, "profiles.json");
 const archivedProfilesFile = path.join(dataRoot, "profiles.legacy.json");
 
+function ensureDataRoot() {
+  fs.mkdirSync(dataRoot, { recursive: true });
+}
+
 const defaultSettings = {
   playbackMethod: "torrent",
   addonIds: [] as string[],
   addonSelectionConfigured: false,
   addonPriorities: {} as Record<string, number>,
   device: {
-    preset: "automatic",
     supports4k: true,
     supportsHdr: true,
     supportsDolbyVision: true,
@@ -30,7 +33,6 @@ const defaultSettings = {
     preferHdr: false,
     preferredCodec: "automatic"
   },
-  profile: "balanced",
   fallback: {
     enabled: true,
     candidateTimeoutSeconds: 20,
@@ -78,79 +80,81 @@ function httpUrl(value: unknown) {
 }
 
 export function normalizeSettings(settings: any) {
+  const { profile: _legacyStreamPreset, ...currentSettings } = settings || {};
+  const { preset: _legacyDevicePreset, ...deviceSettings } = currentSettings.device || {};
   return {
     ...defaultSettings,
-    ...settings,
-    playbackMethod: settings.playbackMethod === "http" ? "http" : "torrent",
-    addonIds: Array.isArray(settings.addonIds)
-      ? settings.addonIds.filter((value: unknown) => typeof value === "string")
+    ...currentSettings,
+    playbackMethod: currentSettings.playbackMethod === "http" ? "http" : "torrent",
+    addonIds: Array.isArray(currentSettings.addonIds)
+      ? currentSettings.addonIds.filter((value: unknown) => typeof value === "string")
       : [],
-    addonSelectionConfigured: settings.addonSelectionConfigured === true,
+    addonSelectionConfigured: currentSettings.addonSelectionConfigured === true,
     addonPriorities:
-      settings.addonPriorities && typeof settings.addonPriorities === "object"
-        ? settings.addonPriorities
+      currentSettings.addonPriorities && typeof currentSettings.addonPriorities === "object"
+        ? currentSettings.addonPriorities
         : {},
     device: {
       ...defaultSettings.device,
-      ...(settings.device || {})
+      ...deviceSettings
     },
     rules: {
       ...defaultSettings.rules,
-      ...(settings.rules || {}),
-      allowedAudioLanguages: Array.isArray(settings.rules?.allowedAudioLanguages)
-        ? settings.rules.allowedAudioLanguages
+      ...(currentSettings.rules || {}),
+      allowedAudioLanguages: Array.isArray(currentSettings.rules?.allowedAudioLanguages)
+        ? currentSettings.rules.allowedAudioLanguages
             .filter((value: unknown) => typeof value === "string")
             .map((value: string) => value.trim().toLowerCase())
             .filter(Boolean)
-        : settings.rules?.preferredLanguage
-          ? [String(settings.rules.preferredLanguage).trim().toLowerCase()]
+        : currentSettings.rules?.preferredLanguage
+          ? [String(currentSettings.rules.preferredLanguage).trim().toLowerCase()]
           : defaultSettings.rules.allowedAudioLanguages,
-      maximumSizeGb: clamp(settings.rules?.maximumSizeGb, 0, 500, 0),
-      minimumSeeders: clamp(settings.rules?.minimumSeeders, 0, 10000, 0)
+      maximumSizeGb: clamp(currentSettings.rules?.maximumSizeGb, 0, 500, 0),
+      minimumSeeders: clamp(currentSettings.rules?.minimumSeeders, 0, 10000, 0)
     },
     fallback: {
-      enabled: settings.fallback?.enabled !== false,
+      enabled: currentSettings.fallback?.enabled !== false,
       candidateTimeoutSeconds: clamp(
-        settings.fallback?.candidateTimeoutSeconds,
+        currentSettings.fallback?.candidateTimeoutSeconds,
         20,
         30,
         defaultSettings.fallback.candidateTimeoutSeconds
       ),
       maximumCandidates: clamp(
-        settings.fallback?.maximumCandidates,
+        currentSettings.fallback?.maximumCandidates,
         10,
         20,
         defaultSettings.fallback.maximumCandidates
       ),
       minimumDownloadedKb: clamp(
-        settings.fallback?.minimumDownloadedKb,
+        currentSettings.fallback?.minimumDownloadedKb,
         1024,
         4096,
         defaultSettings.fallback.minimumDownloadedKb
       )
     },
     midstream: {
-      enabled: settings.midstream?.enabled === true,
+      enabled: currentSettings.midstream?.enabled === true,
       prebufferMb: clamp(
-        settings.midstream?.prebufferMb,
+        currentSettings.midstream?.prebufferMb,
         4,
         256,
         defaultSettings.midstream.prebufferMb
       ),
       stallTimeoutSeconds: clamp(
-        settings.midstream?.stallTimeoutSeconds,
+        currentSettings.midstream?.stallTimeoutSeconds,
         10,
         120,
         defaultSettings.midstream.stallTimeoutSeconds
       ),
       segmentSeconds: clamp(
-        settings.midstream?.segmentSeconds,
+        currentSettings.midstream?.segmentSeconds,
         2,
         10,
         defaultSettings.midstream.segmentSeconds
       ),
       retentionHours: clamp(
-        settings.midstream?.retentionHours,
+        currentSettings.midstream?.retentionHours,
         1,
         72,
         defaultSettings.midstream.retentionHours
@@ -158,13 +162,13 @@ export function normalizeSettings(settings: any) {
     },
     debrid: {
       ...defaultSettings.debrid,
-      ...(settings.debrid || {})
+      ...(currentSettings.debrid || {})
     },
     jackett: {
       ...defaultSettings.jackett,
-      ...(settings.jackett || {}),
-      enabled: settings.jackett?.enabled === true,
-      url: httpUrl(settings.jackett?.url)
+      ...(currentSettings.jackett || {}),
+      enabled: currentSettings.jackett?.enabled === true,
+      url: httpUrl(currentSettings.jackett?.url)
     }
   };
 }
@@ -218,6 +222,7 @@ export function getSettings() {
 }
 
 export function saveSettings(settings: any) {
+  ensureDataRoot();
   fs.writeFileSync(
     settingsFile,
     JSON.stringify(normalizeSettings(settings), null, 2)

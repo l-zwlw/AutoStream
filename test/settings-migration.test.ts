@@ -53,7 +53,7 @@ test("migrates the default legacy viewer profile to global settings once", () =>
 
   assert.equal(result.status, 0, result.stderr);
   const settings = JSON.parse(result.stdout.trim().split("\n").at(-1)!);
-  assert.equal(settings.profile, "balanced");
+  assert.equal("profile" in settings, false);
   assert.deepEqual(settings.addonIds, ["torrentio-instance"]);
   assert.deepEqual(settings.rules.allowedAudioLanguages, ["english", "dutch"]);
   assert.equal(settings.jackett.apiKey, "keep-me");

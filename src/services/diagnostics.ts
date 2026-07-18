@@ -29,7 +29,6 @@ export async function createDiagnosticReport() {
     })),
     settings: {
       playbackMethod: settings.playbackMethod,
-      playbackProfile: settings.profile,
       configuredAddonCount: settings.addonIds?.length || 0
     },
     health: getHealthData().addons

@@ -1,7 +1,10 @@
 import fs from "fs";
 import path from "path";
 
-const settingsFile = path.join(process.cwd(), "data/settings.json");
+const dataRoot = process.env.AUTOSTREAM_DATA_PATH || path.join(process.cwd(), "data");
+const settingsFile = path.join(dataRoot, "settings.json");
+const legacyProfilesFile = path.join(dataRoot, "profiles.json");
+const archivedProfilesFile = path.join(dataRoot, "profiles.legacy.json");
 
 const defaultSettings = {
   playbackMethod: "torrent",
@@ -166,7 +169,44 @@ export function normalizeSettings(settings: any) {
   };
 }
 
+function migrateLegacyProfileSettings() {
+  if (!fs.existsSync(legacyProfilesFile)) return;
+
+  try {
+    const profiles = JSON.parse(fs.readFileSync(legacyProfilesFile, "utf8"));
+    if (!Array.isArray(profiles) || profiles.length === 0) {
+      throw new Error("No legacy profiles found");
+    }
+
+    const selected = profiles.find((profile: any) => profile?.id === "default") || profiles[0];
+    const current = fs.existsSync(settingsFile)
+      ? JSON.parse(fs.readFileSync(settingsFile, "utf8"))
+      : {};
+    const legacy = selected?.settings || {};
+    const migrated = normalizeSettings({
+      ...current,
+      ...legacy,
+      device: { ...(current.device || {}), ...(legacy.device || {}) },
+      rules: { ...(current.rules || {}), ...(legacy.rules || {}) },
+      fallback: { ...(current.fallback || {}), ...(legacy.fallback || {}) },
+      midstream: { ...(current.midstream || {}), ...(legacy.midstream || {}) },
+      debrid: { ...(current.debrid || {}), ...(legacy.debrid || {}) },
+      jackett: { ...(current.jackett || {}), ...(legacy.jackett || {}) }
+    });
+
+    fs.writeFileSync(settingsFile, JSON.stringify(migrated, null, 2));
+    const archivePath = fs.existsSync(archivedProfilesFile)
+      ? path.join(dataRoot, `profiles.legacy-${Date.now()}.json`)
+      : archivedProfilesFile;
+    fs.renameSync(legacyProfilesFile, archivePath);
+    console.log(`Migrated legacy viewer profile “${selected?.name || "Default"}” to global settings.`);
+  } catch (error) {
+    console.error("Could not migrate legacy viewer profiles:", error);
+  }
+}
+
 export function getSettings() {
+  migrateLegacyProfileSettings();
   if (!fs.existsSync(settingsFile)) {
     saveSettings(defaultSettings);
     return defaultSettings;

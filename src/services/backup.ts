@@ -4,7 +4,8 @@ import path from "node:path";
 import { APP_VERSION } from "../version";
 
 const dataRoot = path.join(process.cwd(), "data");
-const allowedFiles = ["addons.json", "settings.json", "profiles.json", "health.json", "cache.json"];
+const backupFiles = ["addons.json", "settings.json", "health.json", "cache.json"];
+const restorableFiles = [...backupFiles, "profiles.json"];
 
 function withoutSecrets(value: any): any {
   if (Array.isArray(value)) return value.map(withoutSecrets);
@@ -18,7 +19,7 @@ function withoutSecrets(value: any): any {
 
 export function createBackup() {
   const files: Record<string, unknown> = {};
-  for (const filename of allowedFiles) {
+  for (const filename of backupFiles) {
     const filePath = path.join(dataRoot, filename);
     if (!fs.existsSync(filePath)) continue;
     files[filename] = withoutSecrets(JSON.parse(fs.readFileSync(filePath, "utf8")));
@@ -40,7 +41,7 @@ export function restoreBackup(backup: any) {
     throw new Error("Backup has no data files");
   }
   const restored: string[] = [];
-  for (const filename of allowedFiles) {
+  for (const filename of restorableFiles) {
     if (!(filename in backup.files)) continue;
     let restoredValue = backup.files[filename];
     const currentPath = path.join(dataRoot, filename);

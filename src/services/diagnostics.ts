@@ -3,12 +3,12 @@ import os from "node:os";
 import { APP_VERSION, RELEASE_CHANNEL } from "../version";
 import { getAddons } from "./addons";
 import { getHealthData } from "./health";
-import { getProfiles } from "./profiles";
+import { getSettings } from "./settings";
 import { getQBittorrentStatus } from "./qbittorrent";
 
 export async function createDiagnosticReport() {
   const addons = getAddons();
-  const profiles = getProfiles();
+  const settings = getSettings();
   return {
     generatedAt: new Date().toISOString(),
     app: { version: APP_VERSION, channel: RELEASE_CHANNEL },
@@ -27,13 +27,11 @@ export async function createDiagnosticReport() {
       version: addon.version,
       enabled: addon.enabled !== false
     })),
-    profiles: profiles.map((profile) => ({
-      id: profile.id,
-      name: profile.name,
-      playbackMethod: profile.settings.playbackMethod,
-      playbackProfile: profile.settings.profile,
-      configuredAddonCount: profile.settings.addonIds?.length || 0
-    })),
+    settings: {
+      playbackMethod: settings.playbackMethod,
+      playbackProfile: settings.profile,
+      configuredAddonCount: settings.addonIds?.length || 0
+    },
     health: getHealthData().addons
   };
 }

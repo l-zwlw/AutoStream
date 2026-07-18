@@ -25,7 +25,7 @@
 <body>
   <main class="card">
     <div class="brand"><img src="/icon.png" alt="" /><div><h1>AutoStream</h1><div id="modeLabel">Dashboard access</div></div></div>
-    <p id="description">Enter the dashboard password to manage profiles, addons and settings.</p>
+    <p id="description">Enter the dashboard password to manage addons and settings.</p>
     <form id="form">
       <label for="password">Password</label>
       <input id="password" type="password" minlength="10" autocomplete="current-password" required autofocus />
@@ -53,8 +53,8 @@
       document.getElementById('modeLabel').textContent = setup ? 'First-time setup' : 'Dashboard access';
       document.getElementById('description').textContent = setup
         ? 'Create one administrator password for this AutoStream dashboard.'
-        : 'Enter the dashboard password to manage profiles, addons and settings.';
-      document.getElementById('hint').textContent = setup ? 'Use at least 10 characters. Viewer profiles do not need separate passwords.' : '';
+        : 'Enter the dashboard password to manage addons and settings.';
+      document.getElementById('hint').textContent = setup ? 'Use at least 10 characters.' : '';
     }
     form.addEventListener('submit', async event => {
       event.preventDefault(); error.textContent = '';

@@ -47,6 +47,17 @@ The derived sidecar image retains the upstream licensing requirements and is lab
 AutoStream can optionally connect to a user-managed Jackett instance through
 its Torznab API. Jackett is not bundled with or redistributed by AutoStream.
 
+## Stremio Web and Stremio Server
+
+- Combined container: <https://github.com/tsaridas/stremio-docker>
+- Stremio Web source: <https://github.com/Stremio/stremio-web>
+- Stremio Server container: <https://github.com/Stremio/server-docker>
+- Stremio Web license: GNU General Public License v2.0
+
+The standard Compose stack references `tsaridas/stremio-docker` as a separate
+open-source container. It is not linked into or redistributed as part of the
+MIT-licensed AutoStream application.
+
 ## Express, cors, TypeScript, and tsx
 
 JavaScript dependencies and their licenses are listed in `package-lock.json` and their respective package distributions.

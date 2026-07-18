@@ -374,10 +374,6 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="18" height="18" rx="4"/><path d="M8 12h8M12 8v8"/></svg>
           Addons
         </button>
-        <button class="nav-btn" data-page="profiles">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="9" cy="8" r="3"/><path d="M3 20c0-4 2-7 6-7s6 3 6 7"/><circle cx="17" cy="9" r="2"/><path d="M16 14c3 0 5 2 5 5"/></svg>
-          Profiles
-        </button>
         <button class="nav-btn" data-page="settings">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 00.3 1.9l.1.1a2 2 0 11-2.9 2.9l-.1-.1a1.7 1.7 0 00-1.9-.3 1.7 1.7 0 00-1 1.6V21a2 2 0 11-4 0v-.1a1.7 1.7 0 00-1.1-1.6 1.7 1.7 0 00-1.9.3l-.1.1a2 2 0 11-2.9-2.9l.1-.1a1.7 1.7 0 00.3-1.9 1.7 1.7 0 00-1.6-1H3a2 2 0 110-4h.1a1.7 1.7 0 001.6-1 1.7 1.7 0 00-.3-1.9l-.1-.1a2 2 0 112.9-2.9l.1.1a1.7 1.7 0 001.9.3H9a1.7 1.7 0 001-1.6V3a2 2 0 114 0v.1a1.7 1.7 0 001 1.6 1.7 1.7 0 001.9-.3l.1-.1a2 2 0 112.9 2.9l-.1.1a1.7 1.7 0 00-.3 1.9V9a1.7 1.7 0 001.6 1H21a2 2 0 110 4h-.1a1.7 1.7 0 00-1.6 1z"/></svg>
           Settings
@@ -423,7 +419,7 @@
           <div class="card hero">
             <div>
               <h1>Just Press Play.</h1>
-              <p>AutoStream connects your Stremio addons, scores every stream, and returns one optimized result for your selected profile.</p>
+              <p>AutoStream connects your Stremio addons, verifies torrent candidates, and returns one optimized result using your settings.</p>
               <div class="install-box">
                 <div class="install-url" id="installUrl">Loading install URL...</div>
                 <button class="btn btn-small btn-primary" id="copyInstallBtn">Copy</button>
@@ -443,7 +439,7 @@
               <div class="stat-note">Enabled or disabled addon sources.</div>
             </div>
             <div class="card stat">
-              <div class="stat-label">Active profile</div>
+              <div class="stat-label">Stream preset</div>
               <div class="stat-value" id="profileValue">Balanced</div>
               <div class="stat-note">Used to choose the best stream.</div>
             </div>
@@ -461,6 +457,11 @@
               <div class="stat-label">Jackett source</div>
               <div class="stat-value" id="jackettValue">Disabled</div>
               <div class="stat-note" id="jackettNote">Optional tracker search is off.</div>
+            </div>
+            <div class="card stat">
+              <div class="stat-label">Browser player</div>
+              <div class="stat-value" id="browserPlayerValue">Checking</div>
+              <div class="stat-note" id="browserPlayerNote">Connecting to Stremio Web.</div>
             </div>
           </div>
         </div>
@@ -485,61 +486,22 @@
           </div>
         </div>
 
-        <div class="page" id="profiles">
-          <div class="section-head">
-            <div>
-              <h2>Profiles</h2>
-              <p>Give every viewer their own preferences and Stremio installation.</p>
-            </div>
-          </div>
-
-          <div class="card card-pad" style="margin-bottom:18px;">
-            <h2>Viewer profile</h2>
-            <p class="hint" style="margin-top:8px;">Each person gets their own settings and Stremio install URL. Addons and download cache remain shared.</p>
-            <div class="settings-grid">
-              <div class="field">
-                <label for="viewerProfileSelect">Profile</label>
-                <select class="select" id="viewerProfileSelect"></select>
-              </div>
-              <div class="field">
-                <label for="viewerProfileName">Name</label>
-                <input class="input" id="viewerProfileName" maxlength="40" placeholder="For example Lukas" />
-              </div>
-            </div>
-            <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:16px;">
-              <button class="btn" id="newProfileBtn">New profile</button>
-              <button class="btn" id="deleteProfileBtn">Delete profile</button>
-            </div>
-          </div>
-
-          <div class="card card-pad">
-            <h2>Install selected profile</h2>
-            <p class="hint" style="margin-top:8px;">Copy this link into Stremio. Each profile has its own permanent link.</p>
-            <div class="install-box" style="max-width:none;">
-              <div class="install-url" id="profileInstallUrl">Loading...</div>
-              <button class="btn btn-small btn-primary" id="copyProfileInstallBtn">Copy</button>
-            </div>
-            <a class="btn" id="installProfileBtn" href="#" style="margin-top:12px;">Install in Stremio</a>
-            <button class="btn btn-primary" id="editProfileSettingsBtn" style="margin-top:16px;">Edit this profile's settings</button>
-          </div>
-        </div>
-
         <div class="page" id="settings">
           <div class="section-head">
             <div>
               <h2>Settings</h2>
-              <p>Configure the currently selected viewer profile.</p>
+              <p>Configure how AutoStream selects and delivers streams.</p>
             </div>
             <button class="btn btn-primary" id="saveSettingsBtn">Save settings</button>
           </div>
 
           <div class="settings-grid">
             <div class="card card-pad">
-              <h2>Playback profile</h2>
-              <p class="hint" style="margin-top:8px;">Choose how AutoStream decides what the best stream is. Normal profiles prioritize seed availability and a practical file size before resolution or premium formats.</p>
+              <h2>Stream preset</h2>
+              <p class="hint" style="margin-top:8px;">Choose how AutoStream decides what the best stream is. Normal preferences prioritize verified availability, seed health and a practical file size before resolution or premium formats.</p>
 
               <div class="field">
-                <label for="profileSelect">Profile</label>
+                <label for="profileSelect">Stream preference</label>
                 <select class="select" id="profileSelect">
                   <option value="balanced">Balanced</option>
                   <option value="fastest">Fastest</option>
@@ -551,7 +513,7 @@
 
               <div class="debrid-panel" id="debridPanel">
                 <h2>Debrid</h2>
-                <p class="hint" style="margin-top:8px;">Use this profile with addons that already return cached debrid streams. AutoStream does not resolve debrid links itself yet.</p>
+                <p class="hint" style="margin-top:8px;">Use this preset with addons that already return cached debrid streams. AutoStream does not resolve debrid links itself yet.</p>
 
                 <div class="field">
                   <label for="debridProvider">Provider</label>
@@ -578,7 +540,7 @@
               <div class="check-row">
                 <div>
                   <label for="fallbackEnabled">Automatic startup fallback</label>
-                  <p class="hint" style="margin-top:4px;">Disabled automatically for the Debrid profile.</p>
+                  <p class="hint" style="margin-top:4px;">Disabled automatically for the Debrid preset.</p>
                 </div>
                 <input id="fallbackEnabled" type="checkbox" />
               </div>
@@ -601,7 +563,7 @@
 
             <div class="card card-pad">
               <h2>Device</h2>
-              <p class="hint" style="margin-top:8px;">Prevent formats this viewer's device cannot play.</p>
+              <p class="hint" style="margin-top:8px;">Prevent formats the playback device cannot play.</p>
               <div class="field"><label for="devicePreset">Preset</label><select class="select" id="devicePreset"><option value="automatic">Automatic</option><option value="mobile">Mobile</option><option value="legacyTv">Legacy TV</option><option value="homeTheater">Home Theater</option></select></div>
               <div class="check-row"><label for="supports4k">4K</label><input id="supports4k" type="checkbox" /></div>
               <div class="check-row"><label for="supportsHdr">HDR</label><input id="supportsHdr" type="checkbox" /></div>
@@ -644,7 +606,7 @@
             </div>
 
             <div class="card card-pad">
-              <h2>Profile addons</h2>
+              <h2>Addon selection</h2>
               <p class="hint" style="margin-top:8px;">Leave every box checked to use all shared addons.</p>
               <div id="profileAddonList"></div>
             </div>
@@ -688,7 +650,7 @@
 
             <div class="card card-pad">
               <h2>Install in Stremio</h2>
-              <p class="hint" style="margin-top:8px;">Copy this personal install URL and paste it into Stremio.</p>
+              <p class="hint" style="margin-top:8px;">Copy this install URL and paste it into Stremio.</p>
               <div class="install-box" style="max-width:none;">
                 <div class="install-url" id="settingsInstallUrl">Loading...</div>
                 <button class="btn btn-small btn-primary" id="copySettingsInstallBtn">Copy</button>
@@ -697,6 +659,13 @@
                 <label>Version</label>
                 <input class="input" id="versionValue" value="Loading..." disabled />
               </div>
+            </div>
+
+            <div class="card card-pad">
+              <h2>Browser and iPhone player</h2>
+              <p class="hint" style="margin-top:8px;">Open the bundled Stremio Web player using this server's LAN address. Torrent passthrough is recommended; Stremio Server converts playback for Safari when needed.</p>
+              <a class="btn btn-primary" id="openBrowserPlayerBtn" href="#" target="_blank" rel="noreferrer" style="margin-top:16px;">Open browser player</a>
+              <p class="hint" style="margin-top:12px;">Use the same LAN URL on every device. Do not use localhost on one device and the LAN address on another.</p>
             </div>
           </div>
         </div>
@@ -711,7 +680,7 @@
           <div class="settings-grid">
             <div class="card card-pad"><h2>Download cache & capacity</h2><p class="hint" id="cacheSummary">Loading...</p><div class="field"><label for="maximumCacheGb">Maximum generated segment cache (GB)</label><input class="input" id="maximumCacheGb" type="number" min="1" max="1000" /></div><div class="field"><label for="maximumConcurrentTranscodes">Simultaneous HTTP transcodes</label><input class="input" id="maximumConcurrentTranscodes" type="number" min="1" max="8" /></div><button class="btn" id="saveCacheSettingsBtn" style="margin-top:12px;">Save capacity settings</button><div id="cacheTorrents" style="margin-top:14px;"></div><button class="btn" id="clearCacheBtn" style="margin-top:16px;">Clear AutoStream cache</button></div>
             <div class="card card-pad"><h2>HTTP streaming activity</h2><p class="hint" style="margin-top:8px;">A live overview of viewers and server capacity.</p><div class="grid grid-3" style="margin-top:18px;"><div><div class="stat-label">Sessions</div><div class="stat-value" id="activitySessions">0</div></div><div><div class="stat-label">Transcoding</div><div class="stat-value" id="activityTranscodes">0</div></div><div><div class="stat-label">Waiting</div><div class="stat-value" id="activityQueued">0</div></div></div><button class="btn" id="refreshActivityBtn" style="margin-top:18px;">Refresh activity</button></div>
-            <div class="card card-pad"><h2>Backup & restore</h2><p class="hint">Profiles, addons, settings and reliability data. Passwords and API secrets are excluded.</p><button class="btn" id="downloadBackupBtn" style="margin-top:16px;">Download backup</button><div class="field"><label for="restoreBackupInput">Restore backup</label><input class="input" id="restoreBackupInput" type="file" accept="application/json" /></div></div>
+            <div class="card card-pad"><h2>Backup & restore</h2><p class="hint">Addons, settings and reliability data. Passwords and API secrets are excluded.</p><button class="btn" id="downloadBackupBtn" style="margin-top:16px;">Download backup</button><div class="field"><label for="restoreBackupInput">Restore backup</label><input class="input" id="restoreBackupInput" type="file" accept="application/json" /></div></div>
             <div class="card card-pad"><h2>Support report</h2><p class="hint">Download a diagnostic report without passwords, tokens or addon URLs.</p><button class="btn" id="downloadDiagnosticsBtn" style="margin-top:16px;">Download support report</button></div>
           </div>
         </div>
@@ -737,7 +706,7 @@
   <div class="modal-backdrop" id="jackettModalBackdrop">
     <div class="card card-pad modal">
       <h2>Configure Jackett</h2>
-      <p>Connect an existing Jackett instance for the currently selected viewer profile. Jackett itself is not bundled with AutoStream.</p>
+      <p>Connect an existing Jackett instance as an additional torrent source. Jackett itself is not bundled with AutoStream.</p>
       <div class="check-row"><label for="jackettEnabled">Enable Jackett</label><input id="jackettEnabled" type="checkbox" /></div>
       <div class="field"><label for="jackettUrl">Jackett URL</label><input class="input" id="jackettUrl" placeholder="http://host.docker.internal:9117" /><p class="hint">Use <code>host.docker.internal</code> when Jackett runs on the same Docker host, or enter its LAN URL.</p></div>
       <div class="field"><label for="jackettApiKey">Jackett API key</label><input class="input" id="jackettApiKey" type="password" placeholder="Paste the API key from Jackett" /></div>
@@ -757,14 +726,11 @@
       status: '/api/status',
       addons: '/api/addons',
       settings: '/api/settings',
-      profiles: '/api/profiles',
       health: '/api/health',
       cache: '/api/cache'
     };
 
     let addons = [];
-    let profiles = [];
-    let selectedProfileId = '';
     let settings = {
       profile: 'balanced',
       fallback: { enabled: true, candidateTimeoutSeconds: 20, maximumCandidates: 10, minimumDownloadedKb: 1024 },
@@ -796,8 +762,7 @@
     }
 
     function getInstallUrl() {
-      const profile = profiles.find(item => item.id === selectedProfileId);
-      return profile?.installUrl || `${window.location.origin}/manifest.json`;
+      return `${window.location.origin}/manifest.json`;
     }
 
     async function copyInstallUrl() {
@@ -809,8 +774,7 @@
       const url = getInstallUrl();
       document.getElementById('installUrl').textContent = url;
       document.getElementById('settingsInstallUrl').textContent = url;
-      document.getElementById('profileInstallUrl').textContent = url;
-      document.getElementById('installProfileBtn').href = url.replace(/^https?:\/\//, 'stremio://');
+      document.getElementById('openBrowserPlayerBtn').href = `http://${window.location.hostname}:7003`;
     }
 
     function initials(name) {
@@ -854,6 +818,13 @@
           : jackett.online
             ? 'Jackett is connected.'
             : jackett.error || 'Add indexers and an API key.';
+        const browserPlayer = data.browserPlayer || {};
+        document.getElementById('browserPlayerValue').textContent = !browserPlayer.configured
+          ? 'Not configured'
+          : browserPlayer.online ? 'Ready' : 'Offline';
+        document.getElementById('browserPlayerNote').textContent = browserPlayer.online
+          ? `Open http://${window.location.hostname}:7003 on this network.`
+          : browserPlayer.error || 'Stremio Web is unavailable.';
         document.getElementById('httpPlaybackOption').disabled = !data.httpStreamingAvailable;
       } catch {
         document.getElementById('statusValue').textContent = 'Offline';
@@ -862,10 +833,9 @@
     }
 
     async function loadSettings() {
-      const profile = profiles.find(item => item.id === selectedProfileId);
-      if (!profile) return;
-      settings = profile.settings;
-      document.getElementById('viewerProfileName').value = profile.name;
+      const response = await fetch(API.settings);
+      if (!response.ok) return;
+      settings = await response.json();
       document.getElementById('profileSelect').value = settings.profile || 'balanced';
       document.getElementById('debridProvider').value = settings.debrid?.provider || '';
       document.getElementById('debridApiKey').value = settings.debrid?.apiKey || '';
@@ -907,8 +877,6 @@
     async function saveSettings() {
       const profile = document.getElementById('profileSelect').value;
       const body = {
-        name: document.getElementById('viewerProfileName').value,
-        settings: {
         playbackMethod: document.getElementById('playbackMethod').value,
         profile,
         addonIds: addons
@@ -960,10 +928,9 @@
           apiKey: document.getElementById('jackettApiKey').value,
           indexer: document.getElementById('jackettIndexer').value.trim() || 'all'
         }
-        }
       };
 
-      const res = await fetch(`${API.profiles}/${encodeURIComponent(selectedProfileId)}`, {
+      const res = await fetch(API.settings, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body)
@@ -974,23 +941,21 @@
         return;
       }
 
-      await loadProfiles(selectedProfileId);
-      toast('Saved', 'Profile settings updated.');
+      await loadSettings();
+      toast('Saved', 'AutoStream settings updated.');
       await loadStatus();
     }
 
     async function saveJackettSettings() {
-      const res = await fetch(`${API.profiles}/${encodeURIComponent(selectedProfileId)}`, {
+      const res = await fetch(API.settings, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          settings: {
-            jackett: {
-              enabled: document.getElementById('jackettEnabled').checked,
-              url: document.getElementById('jackettUrl').value.trim(),
-              apiKey: document.getElementById('jackettApiKey').value,
-              indexer: document.getElementById('jackettIndexer').value.trim() || 'all'
-            }
+          jackett: {
+            enabled: document.getElementById('jackettEnabled').checked,
+            url: document.getElementById('jackettUrl').value.trim(),
+            apiKey: document.getElementById('jackettApiKey').value,
+            indexer: document.getElementById('jackettIndexer').value.trim() || 'all'
           }
         })
       });
@@ -998,10 +963,10 @@
         const data = await res.json().catch(() => ({}));
         return toast('Error', data.error || 'Could not save Jackett.');
       }
-      await loadProfiles(selectedProfileId);
+      await loadSettings();
       await Promise.all([loadStatus(), loadHealth()]);
       closeJackettModal();
-      toast('Saved', 'Jackett settings updated for this profile.');
+      toast('Saved', 'Jackett settings updated.');
     }
 
     function updateDebridPanel() {
@@ -1012,48 +977,6 @@
     function updatePlaybackPanel() {
       document.getElementById('httpSettingsPanel').style.display =
         document.getElementById('playbackMethod').value === 'http' ? 'block' : 'none';
-    }
-
-    async function loadProfiles(preferredId) {
-      const res = await fetch(API.profiles);
-      profiles = await res.json();
-      selectedProfileId = profiles.some(item => item.id === preferredId)
-        ? preferredId
-        : profiles.some(item => item.id === selectedProfileId)
-          ? selectedProfileId
-          : profiles[0]?.id || '';
-      const select = document.getElementById('viewerProfileSelect');
-      select.innerHTML = profiles.map(item =>
-        `<option value="${escapeHtml(item.id)}">${escapeHtml(item.name)}</option>`
-      ).join('');
-      select.value = selectedProfileId;
-      document.getElementById('deleteProfileBtn').disabled = profiles.length <= 1;
-      await loadSettings();
-    }
-
-    async function createViewerProfile() {
-      const name = window.prompt('Name for the new profile:', 'New profile');
-      if (!name?.trim()) return;
-      const res = await fetch(API.profiles, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: name.trim() })
-      });
-      const data = await res.json();
-      if (!res.ok) return toast('Error', data.error || 'Could not create profile.');
-      await loadProfiles(data.profile.id);
-      toast('Profile created', `${data.profile.name} is ready to configure.`);
-    }
-
-    async function deleteViewerProfile() {
-      const profile = profiles.find(item => item.id === selectedProfileId);
-      if (!profile || profiles.length <= 1) return;
-      if (!window.confirm(`Delete profile “${profile.name}”?`)) return;
-      const res = await fetch(`${API.profiles}/${encodeURIComponent(profile.id)}`, { method: 'DELETE' });
-      if (!res.ok) return toast('Error', 'Could not delete profile.');
-      selectedProfileId = '';
-      await loadProfiles();
-      toast('Profile deleted', 'The other profiles were not changed.');
     }
 
     async function loadAddons() {
@@ -1290,7 +1213,6 @@
       const titles = {
         dashboard: ['Dashboard', 'Just Press Play.'],
         addons: ['Addons', 'Manage your stream sources.'],
-        profiles: ['Profiles', 'Personal settings for every viewer.'],
         settings: ['Settings', 'Configure AutoStream.'],
         health: ['Addon Health', 'Reliability measured over time.'],
         tools: ['Tools', 'Cache, backups and diagnostics.']
@@ -1310,8 +1232,6 @@
     });
     document.getElementById('copyInstallBtn').addEventListener('click', copyInstallUrl);
     document.getElementById('copySettingsInstallBtn').addEventListener('click', copyInstallUrl);
-    document.getElementById('copyProfileInstallBtn').addEventListener('click', copyInstallUrl);
-    document.getElementById('editProfileSettingsBtn').addEventListener('click', () => goTo('settings'));
     document.getElementById('openModalBtn').addEventListener('click', openModal);
     document.getElementById('cancelModalBtn').addEventListener('click', closeModal);
     document.getElementById('modalBackdrop').addEventListener('click', e => { if (e.target.id === 'modalBackdrop') closeModal(); });
@@ -1321,12 +1241,6 @@
     document.getElementById('addonSearch').addEventListener('input', renderAddons);
     document.getElementById('profileSelect').addEventListener('change', updateDebridPanel);
     document.getElementById('playbackMethod').addEventListener('change', updatePlaybackPanel);
-    document.getElementById('viewerProfileSelect').addEventListener('change', async event => {
-      selectedProfileId = event.target.value;
-      await loadSettings();
-    });
-    document.getElementById('newProfileBtn').addEventListener('click', createViewerProfile);
-    document.getElementById('deleteProfileBtn').addEventListener('click', deleteViewerProfile);
     document.getElementById('saveSettingsBtn').addEventListener('click', saveSettings);
     document.getElementById('saveJackettBtn').addEventListener('click', saveJackettSettings);
     document.getElementById('devicePreset').addEventListener('change', applyDevicePreset);
@@ -1339,7 +1253,8 @@
     document.getElementById('restoreBackupInput').addEventListener('change', restoreBackupFile);
 
     async function init() {
-      await Promise.all([loadProfiles(), loadAddons()]);
+      await loadAddons();
+      await loadSettings();
       await Promise.all([loadStatus(), loadHealth(), loadCache(), loadStreamingActivity()]);
     }
 

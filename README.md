@@ -9,14 +9,14 @@
 </p>
 
 <p align="center">
-  <img alt="Version" src="https://img.shields.io/badge/stable-1.2.9-4dff9f" />
+  <img alt="Version" src="https://img.shields.io/badge/stable-1.3.0-4dff9f" />
   <img alt="Docker" src="https://img.shields.io/badge/Docker-GHCR-2496ed" />
   <img alt="License" src="https://img.shields.io/badge/license-MIT-4dff9f" />
 </p>
 
 ## What AutoStream does
 
-AutoStream queries every enabled Stremio addon, combines their stream results, applies the selected playback profile, and returns exactly one result to Stremio.
+AutoStream queries every enabled Stremio addon, combines their stream results, applies your global stream settings, and returns exactly one result to Stremio.
 
 The optional qBittorrent startup check verifies the exact requested movie or episode. Candidates race in small batches and the first torrent that delivers enough fresh data wins. AutoStream never substitutes an unverified statistical guess when verification is enabled.
 
@@ -25,12 +25,11 @@ The optional qBittorrent startup check verifies the exact requested movie or epi
 - One clean result in Stremio
 - Any standard Stremio stream addon can be added by manifest URL
 - Addon names, descriptions, versions, and logos are detected automatically
-- Balanced, Fastest, Mobile, Home Theater, and Debrid profiles
+- Balanced, Fastest, Mobile, Home Theater, and Debrid stream presets
 - qBittorrent startup-fallback with configurable timeouts
 - Movie collections and season packs restricted to the requested `fileIdx`
 - Temporary fallback torrents and files removed automatically
 - Responsive self-hosted dashboard
-- Household profiles with individual settings and Stremio install URLs
 - One-password dashboard protection with rate limiting
 - Multi-architecture Docker images for AMD64 and ARM64
 - Standard Docker Compose and GHCR support
@@ -38,10 +37,11 @@ The optional qBittorrent startup check verifies the exact requested movie or epi
 - A dedicated libtorrent sidecar with time-critical piece deadlines
 - Mid-stream fallback at the same segment timestamp
 - Shared segment cache with independent sessions for multiple devices
-- Per-profile addon selection, device capabilities and stream rules
+- Global addon selection, device capabilities and stream rules
 - Addon health, reliability scoring and automatic temporary suppression
 - Backups, cache management and privacy-safe support reports
 - Optional Jackett tracker searches through the standard Torznab API
+- Optional browser player with a bundled Stremio streaming server for iPhone, iPad and desktop browsers
 
 ## How startup fallback works
 
@@ -62,7 +62,7 @@ Torrent passthrough retains the bounded startup fallback. HTTP mode uses a full 
 ## HTTP VOD architecture
 
 ```text
-Stremio profile URL
+AutoStream manifest URL
       ↓
 Full seekable HLS VOD playlist
       ↓
@@ -89,8 +89,8 @@ docker compose up -d
 ```
 
 The standard [`docker-compose.yml`](docker-compose.yml) starts AutoStream with
-its qBittorrent and streaming-engine sidecars. Persistent configuration is
-stored in local folders next to the Compose file.
+its qBittorrent and streaming-engine sidecars plus an optional browser player.
+Persistent configuration is stored in local folders next to the Compose file.
 
 After the stack starts, open:
 
@@ -98,13 +98,33 @@ After the stack starts, open:
 http://YOUR-IP:7001
 ```
 
-On first visit, create the dashboard password. Then open **Profiles**, create a profile for each viewer, configure it under **Settings**, and install its personal manifest URL in Stremio.
+On first visit, create the dashboard password. Configure AutoStream under
+**Settings**, then copy the manifest URL shown on the dashboard into Stremio.
+
+### Browser and iPhone player
+
+The Compose stack includes Stremio Web and Stremio Server as a separate,
+open-source container. Open it on every device using the server's LAN address:
+
+```text
+http://YOUR-IP:7003
+```
+
+Use the same LAN URL on the Mac, iPhone and iPad. Do not use `localhost` on one
+device and the LAN address on another: browsers treat them as separate sites
+with separate local settings. Log in with your own Stremio account to sync the
+library and Continue Watching. Keep AutoStream on **Torrent passthrough** for
+this player; its Stremio Server performs browser-compatible HLS conversion.
+
+Port 7003 is intended for the private home network. Users who deliberately
+want remote access must configure their own trusted HTTPS reverse proxy and
+access controls.
 
 ### Optional Jackett setup
 
 In your existing Jackett instance, add the public or private indexers you are
-allowed to use and copy its API key. In AutoStream, open the viewer profile
-under **Addons → Jackett → Configure**, enter the Jackett URL and API key,
+allowed to use and copy its API key. In AutoStream, open
+**Addons → Jackett → Configure**, enter the Jackett URL and API key,
 then enable Jackett. If Jackett runs separately on the same Docker host, use
 `http://host.docker.internal:9117`. A LAN URL or private HTTPS URL also works.
 Do not expose Jackett directly to the public internet.
@@ -127,13 +147,15 @@ docker compose up -d
 | qBittorrent WebUI | `127.0.0.1:7002` | Host-local only |
 | BitTorrent traffic | `6882/tcp` and `6882/udp` | Avoids the common host port 6881 |
 | HTTP streaming-engine traffic | `6883/tcp` and `6883/udp` | Dedicated libtorrent sidecar |
-| Persistent settings | `./data` | Addons, profiles, settings and password hash |
+| Browser player and Stremio Server | `7003` | Use the same LAN URL on every device |
+| Persistent settings | `./data` | Addons, settings and password hash |
 | Temporary fallback data | `./downloads` | Cleaned after each candidate test |
 | qBittorrent configuration | `./qbittorrent` | Persistent internal engine settings |
+| Stremio Server data | `./stremio-data` | Browser-player cache and server settings |
 
-## Playback profiles
+## Stream presets
 
-| Profile | Intended behavior |
+| Preset | Intended behavior |
 | --- | --- |
 | Balanced | Good quality, reasonable size, and healthy availability |
 | Fastest | Smaller files and strong availability |
@@ -141,7 +163,7 @@ docker compose up -d
 | Home Theater | 4K, HDR, REMUX, and premium audio bonuses |
 | Debrid | Highest-quality cached/debrid results returned by configured addons |
 
-The Debrid profile scores streams already provided by debrid-enabled addons. AutoStream does not currently resolve debrid links itself.
+The Debrid preset scores streams already provided by debrid-enabled addons. AutoStream does not currently resolve debrid links itself.
 
 ## Fallback settings
 
@@ -167,7 +189,13 @@ The dashboard uses these endpoints to display the real release version and fallb
 
 The dashboard and management APIs require one administrator password. Passwords are stored as a salted `scrypt` hash; session cookies are `HttpOnly`, `SameSite=Strict`, and automatically `Secure` behind HTTPS. Stremio manifest and playback routes remain public because Stremio cannot use the dashboard login.
 
-Viewer profiles are preference profiles, not separate security accounts. Anyone who can log in to the dashboard can manage every profile. When exposing AutoStream outside the home, keep using a trusted HTTPS reverse proxy and appropriate network access controls.
+AutoStream uses one global configuration and one manifest URL. Anyone who can
+log in to the dashboard can change those settings. Existing `/p/...` manifest
+URLs from older releases remain compatible and use the global settings.
+
+The browser player is deliberately published on the LAN only by default. When
+exposing either service outside the home, use a trusted HTTPS reverse proxy and
+appropriate network access controls.
 
 The qBittorrent WebUI is bound to `127.0.0.1:7002`. AutoStream communicates with it through Docker's internal network; its API is not exposed to other devices by default.
 

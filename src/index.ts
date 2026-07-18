@@ -26,13 +26,6 @@ import { clearEngineTorrents, getStreamEngineStatus } from "./services/streamEng
 import { APP_VERSION, RELEASE_CHANNEL } from "./version";
 import fs from "node:fs";
 import {
-  createProfile,
-  deleteProfile,
-  getProfile,
-  getProfiles,
-  updateProfile
-} from "./services/profiles";
-import {
   clearFailedAttempts,
   createSession,
   destroySession,
@@ -54,10 +47,14 @@ import {
   getAutoStreamTorrents
 } from "./services/qbittorrent";
 import { getJackettStatus } from "./providers/jackett";
+import { getStremioWebStatus } from "./services/stremioWeb";
 
 const app = express();
 const experimentalHttpEnabled =
   process.env.ENABLE_EXPERIMENTAL_HTTP === "true";
+
+// Run one-time data migrations before any manifest, API or dashboard request.
+getSettings();
 
 app.set("trust proxy", true);
 app.use(cors());
@@ -140,18 +137,16 @@ app.get("/", (req, res) => {
 });
 
 app.get("/configure", (req, res) => {
-  res.redirect("/login?next=/profiles");
+  res.redirect("/login?next=/settings");
 });
 
-function manifestForRequest(req: express.Request, profile?: { id: string; name: string }) {
+function manifestForRequest(req: express.Request, legacyProfileId?: string) {
   const baseUrl = `${req.protocol}://${req.get("host")}`;
   return {
     ...manifest,
-    ...(profile
+    ...(legacyProfileId
       ? {
-          id: `${manifest.id}.${profile.id}`,
-          name: `${manifest.name} · ${profile.name}`,
-          description: `${manifest.description} Profile: ${profile.name}.`
+          id: `${manifest.id}.${legacyProfileId}`
         }
       : {}),
     logo: `${baseUrl}/icon.png`,
@@ -164,10 +159,7 @@ app.get("/manifest.json", (req, res) => {
 });
 
 app.get("/p/:profileId/manifest.json", (req, res) => {
-  const profile = getProfile(req.params.profileId);
-  if (!profile) return res.status(404).json({ error: "Profile not found" });
-
-  res.json(manifestForRequest(req, profile));
+  res.json(manifestForRequest(req, req.params.profileId));
 });
 
 app.get("/stream/:type/:id.json", async (req, res) => {
@@ -186,20 +178,16 @@ app.get("/stream/:type/:id.json", async (req, res) => {
 });
 
 app.get("/p/:profileId/stream/:type/:id.json", async (req, res) => {
-  const profile = getProfile(req.params.profileId);
-  if (!profile) return res.status(404).json({ streams: [] });
-
   try {
     const baseUrl = `${req.protocol}://${req.get("host")}`;
     const streams = await getStreams(
       req.params.type,
       req.params.id,
-      baseUrl,
-      profile.settings
+      baseUrl
     );
     res.json({ streams });
   } catch (error) {
-    console.error(`Stream error for profile ${profile.id}:`, error);
+    console.error(`Stream error for legacy profile route ${req.params.profileId}:`, error);
     res.status(500).json({ streams: [] });
   }
 });
@@ -207,10 +195,6 @@ app.get("/p/:profileId/stream/:type/:id.json", async (req, res) => {
 app.get("/api/status", async (req, res) => {
   const settings = getSettings();
   const qbittorrent = await getQBittorrentStatus();
-  const profiles = getProfiles();
-  const jackettSettings = profiles.find(
-    (profile) => profile.settings.jackett?.enabled
-  )?.settings.jackett || settings.jackett;
 
   res.json({
     status: "online",
@@ -222,15 +206,14 @@ app.get("/api/status", async (req, res) => {
     fallbackEnabled:
       settings.fallback?.enabled !== false &&
       settings.profile !== "debrid",
-    midstreamEnabled: profiles.some(
-      (profile) =>
-        profile.settings.playbackMethod === "http" &&
-        profile.settings.profile !== "debrid"
-    ),
+    midstreamEnabled:
+      settings.playbackMethod === "http" &&
+      settings.profile !== "debrid",
     streamingSessions: getVodStatus().sessions,
     httpStreamingAvailable: experimentalHttpEnabled,
     streamEngine: await getStreamEngineStatus(),
-    jackett: await getJackettStatus(jackettSettings),
+    browserPlayer: await getStremioWebStatus(),
+    jackett: await getJackettStatus(settings.jackett),
     fallbackEngine: qbittorrent
   });
 });
@@ -367,64 +350,6 @@ app.get("/api/diagnostics", async (req, res) => {
   res.json(await createDiagnosticReport());
 });
 
-app.get("/api/profiles", (req, res) => {
-  const baseUrl = `${req.protocol}://${req.get("host")}`;
-  res.json(
-    getProfiles().map((profile) => ({
-      ...profile,
-      installUrl: `${baseUrl}/p/${profile.id}/manifest.json`,
-      settings: {
-        ...profile.settings,
-        debrid: {
-          ...profile.settings.debrid,
-          apiKey: profile.settings.debrid?.apiKey ? "********" : ""
-        },
-        jackett: {
-          ...profile.settings.jackett,
-          apiKey: profile.settings.jackett?.apiKey ? "********" : ""
-        }
-      }
-    }))
-  );
-});
-
-app.post("/api/profiles", (req, res) => {
-  const profile = createProfile(req.body?.name);
-  res.status(201).json({ success: true, profile });
-});
-
-app.patch("/api/profiles/:profileId", (req, res) => {
-  const current = getProfile(req.params.profileId);
-  if (!current) return res.status(404).json({ error: "Profile not found" });
-
-  const patch = { ...req.body };
-  if (
-    patch.settings?.playbackMethod === "http" &&
-    !experimentalHttpEnabled
-  ) {
-    return res.status(400).json({
-      error: "HTTP streaming is not available in this release"
-    });
-  }
-  if (patch.settings?.debrid?.apiKey === "********") {
-    patch.settings.debrid.apiKey = current.settings.debrid?.apiKey || "";
-  }
-  if (patch.settings?.jackett?.apiKey === "********") {
-    patch.settings.jackett.apiKey = current.settings.jackett?.apiKey || "";
-  }
-  const profile = updateProfile(req.params.profileId, patch);
-  res.json({ success: true, profile });
-});
-
-app.delete("/api/profiles/:profileId", (req, res) => {
-  if (!deleteProfile(req.params.profileId)) {
-    return res.status(400).json({
-      error: "Profile not found or the last profile cannot be deleted"
-    });
-  }
-  res.json({ success: true });
-});
-
 app.get("/api/streaming/sessions", (req, res) => {
   res.json(getVodStatus());
 });
@@ -488,6 +413,10 @@ app.get("/api/settings", (req, res) => {
     debrid: {
       ...settings.debrid,
       apiKey: settings.debrid?.apiKey ? "********" : ""
+    },
+    jackett: {
+      ...settings.jackett,
+      apiKey: settings.jackett?.apiKey ? "********" : ""
     }
   });
 });
@@ -510,8 +439,23 @@ app.patch("/api/settings", (req, res) => {
     ...(req.body.midstream || {})
   };
 
+  const nextJackett = {
+    ...currentSettings.jackett,
+    ...(req.body.jackett || {})
+  };
+
   if (req.body.debrid?.apiKey === "********") {
     nextDebrid.apiKey = currentSettings.debrid?.apiKey || "";
+  }
+
+  if (req.body.jackett?.apiKey === "********") {
+    nextJackett.apiKey = currentSettings.jackett?.apiKey || "";
+  }
+
+  if (req.body.playbackMethod === "http" && !experimentalHttpEnabled) {
+    return res.status(400).json({
+      error: "HTTP streaming is not available in this release"
+    });
   }
 
   const newSettings = {
@@ -519,7 +463,8 @@ app.patch("/api/settings", (req, res) => {
     ...req.body,
     fallback: nextFallback,
     midstream: nextMidstream,
-    debrid: nextDebrid
+    debrid: nextDebrid,
+    jackett: nextJackett
   };
 
   saveSettings(newSettings);
@@ -533,6 +478,10 @@ app.patch("/api/settings", (req, res) => {
       debrid: {
         ...savedSettings.debrid,
         apiKey: savedSettings.debrid?.apiKey ? "********" : ""
+      },
+      jackett: {
+        ...savedSettings.jackett,
+        apiKey: savedSettings.jackett?.apiKey ? "********" : ""
       }
     }
   });

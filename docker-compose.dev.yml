@@ -12,12 +12,14 @@ services:
       ENABLE_EXPERIMENTAL_HTTP: "true"
       STREAMING_TEST_MODE: "false"
       STREAM_ENGINE_URL: "http://stream-engine:7010"
+      STREMIO_WEB_URL: "http://stremio-web:8080"
     volumes:
       - ./data:/app/data
       - ./downloads:/downloads
     depends_on:
       - qbittorrent
       - stream-engine
+      - stremio-web
     extra_hosts:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped
@@ -57,3 +59,17 @@ services:
     volumes:
       - ./downloads:/downloads
     restart: unless-stopped
+
+  stremio-web:
+    image: tsaridas/stremio-docker:v1.3.8
+    container_name: autostream-stremio-web
+    environment:
+      NO_CORS: "1"
+      AUTO_SERVER_URL: "1"
+    ports:
+      - "7003:8080"
+    volumes:
+      - ./stremio-data:/root/.stremio-server
+    restart: unless-stopped
+    labels:
+      io.autostream.component: "stremio-web-player"

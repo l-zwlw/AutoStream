@@ -9,7 +9,11 @@ type Settings = {
   };
 };
 
-import { getAddonReliability, getStreamReliability } from "./health";
+import {
+  getAddonReliability,
+  getStreamExperience,
+  getStreamReliability
+} from "./health";
 
 function getText(stream: any) {
   return `${stream.name || ""} ${stream.title || ""} ${stream.behaviorHints?.filename || ""}`.toLowerCase();
@@ -259,7 +263,20 @@ export function rankStreams(streams: any[], settings: Settings = {}) {
       }
       score += getAddonReliability(stream._autostreamAddonId) * 30;
       score += getStreamReliability(stream.infoHash) * 30;
+      const experience = getStreamExperience(stream.infoHash);
+      if (experience.successes > 0) {
+        // A previous real-data verification is much stronger evidence than
+        // scraped seeder text. Keep proven hashes at the front of their
+        // quality lane while still allowing new candidates to be learned.
+        score += 700 + Math.min(experience.successes, 5) * 40;
+      } else if (experience.failures > 0) {
+        score -= Math.min(experience.failures, 5) * 180;
+      }
       score += Number(settings.addonPriorities?.[stream._autostreamAddonId] || 0) * 10;
+      // Jackett searches the user's own configured indexers. Put its strongest
+      // results in the first verification batch, while the measured download
+      // race still decides the actual winner.
+      if (stream._autostreamAddonId === "jackett") score += 120;
 
       // Large multi-season packs often look healthy by aggregate seeder count,
       // but are slower to resolve and less reliable in Stremio than an exact

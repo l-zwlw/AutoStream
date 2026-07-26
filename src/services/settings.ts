@@ -34,10 +34,11 @@ const defaultSettings = {
     preferredCodec: "automatic"
   },
   fallback: {
+    verificationVersion: 7,
     enabled: true,
-    candidateTimeoutSeconds: 20,
-    maximumCandidates: 10,
-    minimumDownloadedKb: 1024
+    candidateTimeoutSeconds: 9,
+    maximumCandidates: 12,
+    minimumDownloadedKb: 256
   },
   midstream: {
     enabled: false,
@@ -113,23 +114,30 @@ export function normalizeSettings(settings: any) {
       minimumSeeders: clamp(currentSettings.rules?.minimumSeeders, 0, 10000, 0)
     },
     fallback: {
+      verificationVersion: 7,
       enabled: currentSettings.fallback?.enabled !== false,
       candidateTimeoutSeconds: clamp(
-        currentSettings.fallback?.candidateTimeoutSeconds,
-        20,
-        30,
+        currentSettings.fallback?.verificationVersion === 7
+          ? currentSettings.fallback?.candidateTimeoutSeconds
+          : defaultSettings.fallback.candidateTimeoutSeconds,
+        6,
+        10,
         defaultSettings.fallback.candidateTimeoutSeconds
       ),
       maximumCandidates: clamp(
-        currentSettings.fallback?.maximumCandidates,
+        currentSettings.fallback?.verificationVersion === 7
+          ? currentSettings.fallback?.maximumCandidates
+          : defaultSettings.fallback.maximumCandidates,
         10,
         20,
         defaultSettings.fallback.maximumCandidates
       ),
       minimumDownloadedKb: clamp(
-        currentSettings.fallback?.minimumDownloadedKb,
-        1024,
-        4096,
+        currentSettings.fallback?.verificationVersion === 7
+          ? currentSettings.fallback?.minimumDownloadedKb
+          : defaultSettings.fallback.minimumDownloadedKb,
+        256,
+        16384,
         defaultSettings.fallback.minimumDownloadedKb
       )
     },
@@ -218,7 +226,11 @@ export function getSettings() {
 
   const settings = JSON.parse(fs.readFileSync(settingsFile, "utf-8"));
 
-  return normalizeSettings(settings);
+  const normalized = normalizeSettings(settings);
+  if (settings.fallback?.verificationVersion !== 7) {
+    fs.writeFileSync(settingsFile, JSON.stringify(normalized, null, 2));
+  }
+  return normalized;
 }
 
 export function saveSettings(settings: any) {

@@ -26,6 +26,8 @@ type TorrentInfo = {
   size: number;
   content_path: string;
   save_path: string;
+  seq_dl: boolean;
+  f_l_piece_prio: boolean;
 };
 
 export type TorrentSummary = Pick<
@@ -67,24 +69,79 @@ export interface FallbackSelection {
   attempts: FallbackAttempt[];
 }
 
-type MeasuredCandidate = {
-  attempt: { success: boolean };
-  averageSpeed: number;
-  newlyDownloadedBytes: number;
-  rank: number;
-};
+function candidateQuality(candidate: TorrentCandidate) {
+  const text = String(candidate.title || "");
+  if (/2160p|\b4k\b/i.test(text)) return "4k";
+  if (/1080p/i.test(text)) return "1080p";
+  if (/720p/i.test(text)) return "720p";
+  return "other";
+}
 
-export function fastestSuccessfulCandidate<T extends MeasuredCandidate>(
+export function requiredVideoProofBytes(
+  fileSize: number,
+  configuredMinimumBytes: number
+) {
+  const proportionalBytes = Math.ceil(Math.max(0, fileSize) * 0.0001);
+
+  return Math.min(
+    4 * 1024 * 1024,
+    Math.max(256 * 1024, configuredMinimumBytes, proportionalBytes)
+  );
+}
+
+export function verificationCandidateOrder<T extends TorrentCandidate>(
   candidates: T[]
 ) {
-  return [...candidates]
-    .filter((candidate) => candidate.attempt.success)
-    .sort(
-      (a, b) =>
-        b.averageSpeed - a.averageSpeed ||
-        b.newlyDownloadedBytes - a.newlyDownloadedBytes ||
-        a.rank - b.rank
-    )[0] || null;
+  const buckets = new Map<string, T[]>([
+    ["1080p", []],
+    ["720p", []],
+    ["4k", []],
+    ["other", []]
+  ]);
+  for (const candidate of candidates) {
+    buckets.get(candidateQuality(candidate))!.push(candidate);
+  }
+  for (const [quality, bucket] of buckets) {
+    // Jackett represents the user's own indexers and may expose healthy swarms
+    // that public addons rank poorly or do not list at all. Give those results
+    // the first verification slots within the same quality, while preserving
+    // the statistical order inside both source groups. Measurement still
+    // decides the winner, so an unhealthy Jackett result never wins blindly.
+    buckets.set(quality, [
+      ...bucket.filter(
+        (candidate: any) => candidate._autostreamAddonId === "jackett"
+      ),
+      ...bucket.filter(
+        (candidate: any) => candidate._autostreamAddonId !== "jackett"
+      )
+    ]);
+  }
+  const ordered: T[] = [];
+  const practicalBuckets = [buckets.get("1080p")!, buckets.get("720p")!];
+  while (practicalBuckets.some((bucket) => bucket.length)) {
+    for (const bucket of practicalBuckets) {
+      const candidate = bucket.shift();
+      if (candidate) ordered.push(candidate);
+    }
+  }
+  ordered.push(...buckets.get("4k")!, ...buckets.get("other")!);
+  return ordered;
+}
+
+export function oneCandidatePerQuality<T extends TorrentCandidate>(
+  candidates: T[]
+) {
+  const selected: T[] = [];
+  const seen = new Set<string>();
+
+  for (const candidate of verificationCandidateOrder(candidates)) {
+    const quality = candidateQuality(candidate);
+    if (seen.has(quality)) continue;
+    seen.add(quality);
+    selected.push(candidate);
+  }
+
+  return selected;
 }
 
 export type FallbackOptions = {
@@ -96,16 +153,16 @@ export type FallbackOptions = {
 function normalizeFallbackOptions(options: FallbackOptions = {}) {
   return {
     candidateTimeoutMs: Math.min(
-      Math.max(Number(options.candidateTimeoutSeconds || 20), 20),
-      30
+      Math.max(Number(options.candidateTimeoutSeconds || 9), 6),
+      10
     ) * 1000,
     maximumCandidates: Math.min(
       Math.max(Number(options.maximumCandidates || 10), 10),
       20
     ),
     minimumDownloadedBytes: Math.min(
-      Math.max(Number(options.minimumDownloadedKb || 1024), 1024),
-      4096
+      Math.max(Number(options.minimumDownloadedKb || 256), 256),
+      16384
     ) * 1024
   };
 }
@@ -264,6 +321,38 @@ async function setFilePriority(
   }
 }
 
+async function toggleTorrentOption(infoHash: string, endpoint: string) {
+  const response = await apiRequest(`/api/v2/torrents/${endpoint}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded"
+    },
+    body: new URLSearchParams({ hashes: infoHash })
+  });
+
+  if (!response.ok) {
+    throw new Error(
+      `qBittorrent ${endpoint} returned HTTP ${response.status}`
+    );
+  }
+}
+
+async function ensureStreamingPriorities(infoHash: string) {
+  const torrent = await getTorrent(infoHash);
+  if (!torrent) {
+    throw new Error("Torrent disappeared while setting streaming priorities");
+  }
+
+  // The add API options are not applied reliably by every qBittorrent build.
+  // Read the actual state and explicitly enable both options when necessary.
+  if (!torrent.seq_dl) {
+    await toggleTorrentOption(infoHash, "toggleSequentialDownload");
+  }
+  if (!torrent.f_l_piece_prio) {
+    await toggleTorrentOption(infoHash, "toggleFirstLastPiecePrio");
+  }
+}
+
 async function configureSelectedFile(
   infoHash: string,
   requestedFileIndex?: number
@@ -302,6 +391,7 @@ async function configureSelectedFile(
     0
   );
   await setFilePriority(infoHash, [selectedFile.index], 7);
+  await ensureStreamingPriorities(infoHash);
 
   return selectedFile.index;
 }
@@ -479,7 +569,9 @@ async function testCandidate(
   let selectedFileIndex: number | null = null;
   let metadataReady = false;
   let downloadedBaseline: number | null = null;
-  let measurementStartedAt: number | null = null;
+  let lastNewlyDownloadedBytes = 0;
+  let lastRequiredProofBytes = options.minimumDownloadedBytes;
+  let lastSeeds = 0;
 
   try {
     while (
@@ -518,8 +610,6 @@ async function testCandidate(
         // making a candidate look healthy.
         const configuredTorrent = await getTorrent(infoHash);
         downloadedBaseline = configuredTorrent?.downloaded ?? torrent.downloaded;
-        measurementStartedAt = Date.now();
-
         console.log(
           `qBittorrent restricted ${infoHash} to file index ${selectedFileIndex}`,
           `(baseline ${downloadedBaseline} bytes)`
@@ -535,16 +625,23 @@ async function testCandidate(
       const newlyDownloadedBytes =
         downloadedBaseline === null
           ? 0
-          : Math.max(0, torrent.downloaded - downloadedBaseline);
-      const measurementSeconds =
-        measurementStartedAt === null
-          ? 0
-          : Math.max((Date.now() - measurementStartedAt) / 1000, 0.001);
-      const averageSpeed = newlyDownloadedBytes / measurementSeconds;
+          : Math.max(
+              0,
+              Number(torrent.downloaded || 0) - downloadedBaseline
+            );
+      lastNewlyDownloadedBytes = newlyDownloadedBytes;
+      lastSeeds = torrent.num_seeds;
+      const requiredProofBytes = requiredVideoProofBytes(
+        selectedFile?.size || 0,
+        options.minimumDownloadedBytes
+      );
+      lastRequiredProofBytes = requiredProofBytes;
+      // This is deliberately binary: the selected video file either delivered
+      // the configured amount of real data or it did not. Seeder counts,
+      // estimated speed and statistical rank never decide the winner.
       const hasActivity =
         Boolean(selectedFile && selectedFile.priority > 0) &&
-        newlyDownloadedBytes >= options.minimumDownloadedBytes &&
-        measurementSeconds >= 4;
+        newlyDownloadedBytes >= requiredProofBytes;
       const hasPeers =
         torrent.num_seeds > 0 ||
         torrent.num_leechs > 0 ||
@@ -553,10 +650,11 @@ async function testCandidate(
       if (hasMetadata && hasActivity && hasPeers) {
         return {
           success: true,
-          reason: `downloaded ${newlyDownloadedBytes} verified bytes from ${torrent.num_seeds} seeds at ${Math.round(averageSpeed)} B/s average`,
+          reason:
+            `selected video file delivered ${newlyDownloadedBytes} verified bytes ` +
+            `(required ${requiredProofBytes})`,
           metadataReady: true,
-          newlyDownloadedBytes,
-          averageSpeed
+          newlyDownloadedBytes
         };
       }
 
@@ -567,10 +665,11 @@ async function testCandidate(
       success: false,
       reason: signal?.aborted
         ? "cancelled after another candidate succeeded"
-        : `no usable data within ${options.candidateTimeoutMs / 1000} seconds`,
+        : `no usable data within ${options.candidateTimeoutMs / 1000} seconds ` +
+          `(downloaded ${lastNewlyDownloadedBytes}/${lastRequiredProofBytes} ` +
+          `selected-file bytes, seeds ${lastSeeds})`,
       metadataReady,
-      newlyDownloadedBytes: 0,
-      averageSpeed: 0
+      newlyDownloadedBytes: lastNewlyDownloadedBytes
     };
   } finally {
     if (createdByAutoStream) {
@@ -589,121 +688,85 @@ export async function selectFirstPlayableTorrent(
       typeof stream.infoHash === "string" &&
       /^[a-fA-F0-9]{40}$/.test(stream.infoHash)
     );
-  // rankStreams already compares every addon globally. Preserve that order
-  // here: interleaving one result per quality promoted weak 4K/1080p torrents
-  // over healthier 720p candidates and made fallback less predictable.
-  const candidates = validCandidates.slice(0, options.maximumCandidates);
+  const candidates = oneCandidatePerQuality(validCandidates);
   if (!candidates.length) {
     return { stream: null, attempts: [] };
   }
   type TestedCandidate = {
     candidate: TorrentCandidate;
-    metadataReady: boolean;
-    rank: number;
-    newlyDownloadedBytes: number;
-    averageSpeed: number;
     attempt: FallbackAttempt;
   };
   const attempts: FallbackAttempt[] = [];
 
-  // Four candidates include the best practical alternatives across common
-  // quality levels without overloading a typical home server.
-  // Duplicate Stremio requests share this race in streams.ts.
-  const batchSize = Math.min(4, candidates.length);
-  for (let offset = 0; offset < candidates.length; offset += batchSize) {
-    const batch = candidates.slice(offset, offset + batchSize);
-    const deadline = Date.now() + options.candidateTimeoutMs;
-    const probeController = new AbortController();
-    let remaining = batch.length;
-    let settled = false;
-    let resolveWinner: (value: TestedCandidate | null) => void = () => undefined;
-    const firstSuccess = new Promise<TestedCandidate | null>((resolve) => {
-      resolveWinner = resolve;
-    });
+  // Exactly one active torrent per allowed quality. The first selected video
+  // file to deliver its proportional proof data wins.
+  const selectionDeadline = Date.now() + options.candidateTimeoutMs;
+  const probeController = new AbortController();
+  let remaining = candidates.length;
+  let settled = false;
+  let resolveWinner: (value: TestedCandidate | null) => void = () => undefined;
+  const firstSuccess = new Promise<TestedCandidate | null>((resolve) => {
+    resolveWinner = resolve;
+  });
 
-    const successfulCandidates: TestedCandidate[] = [];
-    const tasks = batch.map(async (candidate, batchIndex): Promise<TestedCandidate> => {
-      const infoHash = candidate.infoHash!.toLowerCase();
-      let tested: TestedCandidate;
-      try {
-        const result = await testCandidate(
-          candidate,
-          options,
-          deadline,
-          probeController.signal
-        );
-        tested = {
-          candidate,
-          metadataReady: result.metadataReady,
-          rank: offset + batchIndex,
-          newlyDownloadedBytes: result.newlyDownloadedBytes || 0,
-          averageSpeed: result.averageSpeed || 0,
-          attempt: {
-            infoHash,
-            title: candidate.title || infoHash,
-            success: result.success,
-            reason: result.reason
-          }
-        };
-      } catch (error) {
-        const reason = error instanceof Error ? error.message : "Unknown error";
-        tested = {
-          candidate,
-          metadataReady: false,
-          rank: offset + batchIndex,
-          newlyDownloadedBytes: 0,
-          averageSpeed: 0,
-          attempt: {
-            infoHash,
-            title: candidate.title || infoHash,
-            success: false,
-            reason
-          }
-        };
-      }
-
-      console.log(
-        `Fallback candidate ${tested.attempt.success ? "accepted" : "rejected"}:`,
-        tested.attempt.title,
-        `(${tested.attempt.reason})`
+  const tasks = candidates.map(async (candidate) => {
+    const infoHash = candidate.infoHash!.toLowerCase();
+    let tested: TestedCandidate;
+    try {
+      const result = await testCandidate(
+        candidate,
+        options,
+        selectionDeadline,
+        probeController.signal
       );
-      attempts.push(tested.attempt);
-      remaining -= 1;
-
-      if (tested.attempt.success) {
-        successfulCandidates.push(tested);
-      }
-
-      if (!settled && tested.attempt.success) {
-        settled = true;
-        resolveWinner(tested);
-      } else if (!settled && remaining === 0) {
-        settled = true;
-        resolveWinner(null);
-      }
-
-      return tested;
-    });
-
-    const winner = await firstSuccess;
-    if (winner) {
-      // The first stream to become playable starts a short grace period. This
-      // keeps startup quick while allowing another already-active candidate to
-      // prove that it has materially better sustained throughput.
-      await Promise.race([
-        Promise.allSettled(tasks),
-        delay(2_000)
-      ]);
-      probeController.abort();
+      tested = {
+        candidate,
+        attempt: {
+          infoHash,
+          title: candidate.title || infoHash,
+          success: result.success,
+          reason: result.reason
+        }
+      };
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : "Unknown error";
+      tested = {
+        candidate,
+        attempt: {
+          infoHash,
+          title: candidate.title || infoHash,
+          success: false,
+          reason
+        }
+      };
     }
-    await Promise.allSettled(tasks);
-    if (winner) {
-      const fastest = fastestSuccessfulCandidate(successfulCandidates) || winner;
-      return { stream: fastest.candidate, attempts };
+
+    console.log(
+      `Fallback candidate ${tested.attempt.success ? "accepted" : "rejected"}:`,
+      tested.attempt.title,
+      `(${tested.attempt.reason})`
+    );
+    attempts.push(tested.attempt);
+    remaining -= 1;
+
+    if (!settled && tested.attempt.success) {
+      settled = true;
+      resolveWinner(tested);
+    } else if (!settled && remaining === 0) {
+      settled = true;
+      resolveWinner(null);
     }
+
+    return tested;
+  });
+
+  const winner = await firstSuccess;
+  if (winner) {
+    probeController.abort();
   }
+  await Promise.allSettled(tasks);
 
-  return { stream: null, attempts };
+  return { stream: winner?.candidate || null, attempts };
 }
 
 export async function getQBittorrentStatus(): Promise<QBittorrentStatus> {

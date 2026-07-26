@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version" src="https://img.shields.io/badge/stable-1.3.1-4dff9f" />
+  <img alt="Version" src="https://img.shields.io/badge/stable-1.3.2-4dff9f" />
   <img alt="Docker" src="https://img.shields.io/badge/Docker-GHCR-2496ed" />
   <img alt="License" src="https://img.shields.io/badge/license-MIT-4dff9f" />
 </p>
@@ -21,7 +21,7 @@ AutoStream queries every enabled Stremio addon, combines their stream results, a
 AutoStream does not bundle or preinstall content-source addons. Add only the
 Stremio addon manifest URLs you choose from the dashboard.
 
-The optional qBittorrent startup check verifies the exact requested movie or episode. Candidates race in small batches and the first torrent that delivers enough fresh data wins. AutoStream never substitutes an unverified statistical guess when verification is enabled.
+The optional qBittorrent startup check verifies the exact requested movie or episode. AutoStream tests one candidate per allowed quality at the same time, restricts every torrent to the requested video file, and returns the first candidate that downloads verified video data. The proof threshold is 0.01% of the video file, bounded between 256 KB and 4 MB. AutoStream never substitutes an unverified statistical guess when verification is enabled.
 
 ## Highlights
 

@@ -21,7 +21,9 @@ const verificationInFlight = new Map<
   string,
   ReturnType<typeof selectFirstPlayableTorrent>
 >();
-const verifiedSelectionLifetimeMs = 30 * 60 * 1000;
+// Recheck regularly: swarm health can change quickly and a once-fast torrent
+// must not remain sticky for half an hour.
+const verifiedSelectionLifetimeMs = 5 * 60 * 1000;
 
 export function verifiedSelectionKey(type: string, id: string, settings: any) {
   const selectionSettings = {
@@ -99,13 +101,22 @@ export async function getStreams(
     return result;
   });
 
-  // Merge fast sources, but never let a slow Jackett/indexer query hold the
-  // Stremio screen open. Late Jackett results still populate its cache.
-  await Promise.race([
-    Promise.all(sourceTasks),
-    firstSource.then(() => new Promise((resolve) => setTimeout(resolve, 750))),
-    new Promise((resolve) => setTimeout(resolve, 2_500))
-  ]);
+  // Jackett often needs longer than a hosted Stremio addon because it queries
+  // multiple indexers. When the user enabled it, give it a real opportunity
+  // to join the global candidate pool instead of returning as soon as
+  // Torrentio answers.
+  await (settings.jackett?.enabled
+    ? Promise.race([
+        Promise.all(sourceTasks),
+        // Jackett keeps source priority, but the Stremio stream screen may not
+        // be blocked for an entire indexer cycle. Late results remain cached.
+        new Promise((resolve) => setTimeout(resolve, 2_000))
+      ])
+    : Promise.race([
+        Promise.all(sourceTasks),
+        firstSource.then(() => new Promise((resolve) => setTimeout(resolve, 750))),
+        new Promise((resolve) => setTimeout(resolve, 2_500))
+      ]));
   const [addonStreams = [], jackettStreams = []] = sourceResults;
   const streams = deduplicateStreams([...addonStreams, ...jackettStreams]);
 

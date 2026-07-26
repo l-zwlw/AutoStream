@@ -119,6 +119,15 @@ export function getStreamReliability(infoHash?: string) {
   return (value.successes + 1) / (value.successes + value.failures + 2);
 }
 
+export function getStreamExperience(infoHash?: string) {
+  if (!infoHash) return { successes: 0, failures: 0 };
+  const value = readData().streams[infoHash.toLowerCase()];
+  return {
+    successes: value?.successes || 0,
+    failures: value?.failures || 0
+  };
+}
+
 export function resetHealthData() {
   writeData(emptyData());
 }

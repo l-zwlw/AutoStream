@@ -4,7 +4,11 @@ import test from "node:test";
 import { deduplicateStreams } from "../src/services/dedupe";
 import { rankStreams } from "../src/services/sorter";
 import { verifiedSelectionKey } from "../src/streams";
-import { fastestSuccessfulCandidate } from "../src/services/qbittorrent";
+import {
+  oneCandidatePerQuality,
+  requiredVideoProofBytes,
+  verificationCandidateOrder
+} from "../src/services/qbittorrent";
 
 test("deduplicates the same torrent and file index", () => {
   const streams = [
@@ -218,25 +222,81 @@ test("verified selection cache is isolated per episode and settings", () => {
   );
 });
 
-test("measured throughput beats statistical rank after candidates become playable", () => {
-  const statisticalWinner = {
-    id: "statistical",
-    rank: 0,
-    averageSpeed: 350_000,
-    newlyDownloadedBytes: 1_500_000,
-    attempt: { success: true }
-  };
-  const measuredWinner = {
-    id: "measured",
-    rank: 3,
-    averageSpeed: 1_800_000,
-    newlyDownloadedBytes: 5_000_000,
-    attempt: { success: true }
-  };
+test("verification gives practical quality alternatives an early slot", () => {
+  const ordered = verificationCandidateOrder([
+    { title: "First 1080p" },
+    { title: "Second 1080p" },
+    { title: "Third 1080p" },
+    { title: "Working 720p" }
+  ]);
+  assert.deepEqual(
+    ordered.slice(0, 2).map((candidate) => candidate.title),
+    ["First 1080p", "Working 720p"]
+  );
+});
 
+test("verification races exactly one torrent per quality", () => {
+  const selected = oneCandidatePerQuality([
+    { title: "First 1080p" },
+    { title: "Second 1080p" },
+    { title: "First 720p" },
+    { title: "Second 720p" },
+    { title: "First 2160p" }
+  ]);
+  assert.deepEqual(
+    selected.map((candidate) => candidate.title),
+    ["First 1080p", "First 720p", "First 2160p"]
+  );
+});
+
+test("video proof is 0.01 percent with a 256 KB floor and 4 MB cap", () => {
+  const configured = 256 * 1024;
   assert.equal(
-    fastestSuccessfulCandidate([statisticalWinner, measuredWinner])?.id,
-    "measured"
+    requiredVideoProofBytes(800 * 1024 * 1024, configured),
+    configured
+  );
+  assert.equal(
+    requiredVideoProofBytes(30 * 1024 * 1024 * 1024, configured),
+    Math.ceil(30 * 1024 * 1024 * 1024 * 0.0001)
+  );
+  assert.equal(
+    requiredVideoProofBytes(100 * 1024 * 1024 * 1024, configured),
+    4 * 1024 * 1024
+  );
+  assert.equal(requiredVideoProofBytes(10, configured), configured);
+});
+
+test("Jackett candidates enter verification ahead of equivalent addon results", () => {
+  const addon = {
+    infoHash: "a".repeat(40),
+    title: "Show S02E11 1080p WEB-DL 👤 40 💾 2 GB",
+    _autostreamAddonId: "torrentio"
+  };
+  const jackett = {
+    ...addon,
+    infoHash: "b".repeat(40),
+    _autostreamAddonId: "jackett"
+  };
+  assert.equal(rankStreams([addon, jackett], {
+    rules: {
+      minimumQuality: "720p",
+      maximumQuality: "4k",
+      maximumSizeGb: 0,
+      minimumSeeders: 0,
+      allowedAudioLanguages: ["english"],
+      allowRemux: true
+    },
+    device: {
+      supports4k: true,
+      supportsDolbyVision: true,
+      supportsHdr: true,
+      supportsHevc: true,
+      supportsAv1: true
+    }
+  })[0]._autostreamAddonId, "jackett");
+  assert.equal(
+    verificationCandidateOrder([addon, jackett])[0]._autostreamAddonId,
+    "jackett"
   );
 });
 

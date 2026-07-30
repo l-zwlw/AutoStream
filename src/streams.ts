@@ -3,12 +3,14 @@ import { rankStreams } from "./services/sorter";
 import { getSettings } from "./services/settings";
 import {
   getQBittorrentStatus,
-  selectFirstPlayableTorrent
+  selectFirstPlayableTorrent,
+  torrentSourcesWithDefaults
 } from "./services/qbittorrent";
 import { createVodSession } from "./services/vodStreaming";
 import { deduplicateStreams } from "./services/dedupe";
 import { recordAddonResult, recordStreamOutcome } from "./services/health";
 import { getJackettStreams } from "./providers/jackett";
+import { selectFirstPlayableHttp } from "./services/httpStreams";
 
 const experimentalHttpEnabled =
   process.env.ENABLE_EXPERIMENTAL_HTTP === "true";
@@ -42,6 +44,33 @@ export function verifiedSelectionKey(type: string, id: string, settings: any) {
 
 function activeVerificationKey(type: string, id: string, settings: any) {
   return `${type}:${id}`;
+}
+
+function presentDirectStream(stream: any) {
+  return {
+    ...Object.fromEntries(
+      Object.entries(stream).filter(([key]) => !key.startsWith("_autostream"))
+    ),
+    name: "AutoStream",
+    title: "🍿 HTTP",
+    behaviorHints: {
+      ...stream.behaviorHints
+    }
+  };
+}
+
+function presentTorrentStream(stream: any) {
+  return {
+    ...Object.fromEntries(
+      Object.entries(stream).filter(([key]) => !key.startsWith("_autostream"))
+    ),
+    sources: torrentSourcesWithDefaults(stream.sources),
+    name: "AutoStream",
+    title: "🍿",
+    behaviorHints: {
+      ...stream.behaviorHints
+    }
+  };
 }
 
 export async function getStreams(
@@ -130,15 +159,30 @@ export async function getStreams(
     return [];
   }
 
-  let stream = ranked[0];
+  const directCandidates = ranked.filter(
+    (candidate) => typeof candidate.url === "string"
+  );
+  const torrentCandidates = ranked.filter(
+    (candidate) =>
+      typeof candidate.infoHash === "string" &&
+      /^[a-fA-F0-9]{40}$/.test(candidate.infoHash)
+  );
+  let stream = torrentCandidates[0];
 
   if (settings.playbackMethod === "torrent") {
+    const raceController = new AbortController();
+    const directPromise = selectFirstPlayableHttp(
+      directCandidates,
+      4,
+      4_000,
+      raceController.signal
+    );
     const cacheKey = verifiedSelectionKey(type, id, settings);
     const inFlightKey = activeVerificationKey(type, id, settings);
     const cached = verifiedSelectionCache.get(cacheKey);
     const cachedStream =
       cached && cached.expiresAt > Date.now()
-        ? ranked.find(
+        ? torrentCandidates.find(
             (candidate) =>
               candidate.infoHash?.toLowerCase() === cached.infoHash
           )
@@ -146,6 +190,7 @@ export async function getStreams(
 
     if (cachedStream) {
       stream = cachedStream;
+      raceController.abort();
       console.log("Using verified passthrough selection:", stream.infoHash);
     } else {
       if (cached) verifiedSelectionCache.delete(cacheKey);
@@ -153,30 +198,58 @@ export async function getStreams(
       if (qbittorrent.online && settings.fallback?.enabled !== false) {
         let verification = verificationInFlight.get(inFlightKey);
         if (!verification) {
-          verification = selectFirstPlayableTorrent(ranked, settings.fallback);
-          verificationInFlight.set(inFlightKey, verification);
+          verification = selectFirstPlayableTorrent(
+            torrentCandidates,
+            settings.fallback,
+            directCandidates.length ? raceController.signal : undefined
+          );
+          if (!directCandidates.length) {
+            verificationInFlight.set(inFlightKey, verification);
+          }
         } else {
           console.log("Joining in-progress passthrough verification:", inFlightKey);
         }
 
-        let fallback;
-        try {
-          fallback = await verification;
-        } finally {
-          if (verificationInFlight.get(inFlightKey) === verification) {
-            verificationInFlight.delete(inFlightKey);
+        const torrentRace = verification.then((fallback) => {
+          if (!fallback.stream) throw new Error("no torrent passed verification");
+          return { kind: "torrent" as const, stream: fallback.stream, fallback };
+        });
+        const httpRace = directPromise.then((direct) => {
+          for (const attempt of direct.attempts) {
+            console.log(
+              `HTTP candidate ${attempt.success ? "accepted" : "rejected"}:`,
+              attempt.url,
+              `(${attempt.reason})`
+            );
           }
+          if (!direct.stream) throw new Error("no HTTP stream passed verification");
+          return { kind: "http" as const, stream: direct.stream };
+        });
+
+        const winner = await Promise.any([torrentRace, httpRace]).catch(
+          () => null
+        );
+        raceController.abort();
+        if (verificationInFlight.get(inFlightKey) === verification) {
+          verificationInFlight.delete(inFlightKey);
         }
-        for (const attempt of fallback.attempts) {
-          if (attempt.reason !== "cancelled after another candidate succeeded") {
+
+        if (!winner) {
+          console.warn("No HTTP stream or torrent passed startup verification");
+          return [];
+        }
+        if (winner.kind === "http") {
+          return [presentDirectStream(winner.stream)];
+        }
+
+        for (const attempt of winner.fallback.attempts) {
+          if (
+            attempt.reason !== "cancelled after another candidate succeeded"
+          ) {
             recordStreamOutcome(attempt.infoHash, attempt.success);
           }
         }
-        if (!fallback.stream) {
-          console.warn("No torrent delivered usable video data during verification");
-          return [];
-        }
-        stream = fallback.stream;
+        stream = winner.stream;
         if (stream.infoHash) {
           verifiedSelectionCache.set(cacheKey, {
             infoHash: stream.infoHash.toLowerCase(),
@@ -184,23 +257,30 @@ export async function getStreams(
           });
         }
       } else {
-        console.warn("qBittorrent verification unavailable; using ranked passthrough result");
+        const direct = await directPromise;
+        raceController.abort();
+        if (direct.stream) return [presentDirectStream(direct.stream)];
+        if (!stream) {
+          console.warn("No verified HTTP stream and no torrent is available");
+          return [];
+        }
+        console.warn(
+          "qBittorrent verification unavailable; using ranked passthrough result"
+        );
       }
     }
 
     console.log("Verified passthrough selection:", stream.title || stream.infoHash);
-    return [
-      {
-        ...Object.fromEntries(
-          Object.entries(stream).filter(([key]) => !key.startsWith("_autostream"))
-        ),
-        name: "AutoStream",
-        title: "🍿",
-        behaviorHints: {
-          ...stream.behaviorHints
-        }
-      }
-    ];
+    return [presentTorrentStream(stream)];
+  }
+
+  const directVerification = await selectFirstPlayableHttp(directCandidates);
+  if (directVerification.stream) {
+    return [presentDirectStream(directVerification.stream)];
+  }
+  if (!torrentCandidates.length) {
+    console.warn("No direct HTTP stream or torrent passed validation");
+    return [];
   }
 
   const qbittorrent = await getQBittorrentStatus();
@@ -216,7 +296,7 @@ export async function getStreams(
     try {
       const session = createVodSession(
         `${type}:${id}`,
-        ranked,
+        torrentCandidates,
         settings.midstream
       );
 
@@ -228,8 +308,8 @@ export async function getStreams(
           behaviorHints: {
             bingeGroup: `autostream|${type}|${id}`,
             filename:
-              ranked[0]?.behaviorHints?.filename ||
-              ranked[0]?.title ||
+              torrentCandidates[0]?.behaviorHints?.filename ||
+              torrentCandidates[0]?.title ||
               `${id}.mp4`
           }
         }
@@ -248,7 +328,7 @@ export async function getStreams(
     settings.fallback?.enabled !== false
   ) {
     const fallback = await selectFirstPlayableTorrent(
-      ranked,
+      torrentCandidates,
       settings.fallback
     );
 

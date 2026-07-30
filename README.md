@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version" src="https://img.shields.io/badge/stable-1.3.2-4dff9f" />
+  <img alt="Version" src="https://img.shields.io/badge/stable-1.3.3-4dff9f" />
   <img alt="Docker" src="https://img.shields.io/badge/Docker-GHCR-2496ed" />
   <img alt="License" src="https://img.shields.io/badge/license-MIT-4dff9f" />
 </p>
@@ -21,7 +21,19 @@ AutoStream queries every enabled Stremio addon, combines their stream results, a
 AutoStream does not bundle or preinstall content-source addons. Add only the
 Stremio addon manifest URLs you choose from the dashboard.
 
-The optional qBittorrent startup check verifies the exact requested movie or episode. AutoStream tests one candidate per allowed quality at the same time, restricts every torrent to the requested video file, and returns the first candidate that downloads verified video data. The proof threshold is 0.01% of the video file, bounded between 256 KB and 4 MB. AutoStream never substitutes an unverified statistical guess when verification is enabled.
+The optional startup check verifies the exact requested movie or episode.
+AutoStream tests one candidate per allowed quality at the same time, restricts
+every torrent to the requested video file, and returns the first candidate
+whose requested start pieces deliver real payload. The proof threshold is
+0.01% of the video file, bounded between 256 KB and 4 MB. AutoStream never
+substitutes an unmeasured statistical guess when verification is enabled.
+
+Direct HTTP and HLS results from configured addons are supported too. Before
+one is shown in Stremio, AutoStream follows only validated public redirects,
+rejects webpages and JSON error responses, and verifies real media bytes. For
+HLS it also opens the first media segment. Private and loopback stream targets
+are blocked by default to prevent addons from using AutoStream as an SSRF
+proxy.
 
 ## Highlights
 
@@ -55,9 +67,9 @@ Query enabled addons
       ↓
 Rank all stream candidates
       ↓
-qBittorrent tests up to three candidates together
+Test one candidate per allowed quality in parallel
       ├─ first exact file receiving verified data → return it
-      └─ no winner → clean up and test the next batch
+      └─ no winner → clean up and test the next quality round
 ```
 
 Torrent passthrough retains the bounded startup fallback. HTTP mode uses a full VOD playlist: Stremio can seek anywhere, AutoStream generates only requested segments, and a failed segment is retried from the next candidate at the same timestamp.
@@ -167,11 +179,16 @@ torrent wins. Optional debrid-aware selection is configured separately.
 ## Fallback settings
 
 - **Automatic startup fallback:** enable or disable qBittorrent candidate testing
-- **Seconds per candidate:** 20–30 seconds
+- **Seconds per candidate:** 8–20 seconds (18 by default)
 - **Maximum candidates:** 10–20 candidates
-- **Minimum verified download:** 1024–4096 KB
+- **Minimum verified download:** 256–16384 KB
 
-Candidates are tested in batches of at most three. Healthy torrents normally win before the full timeout. Successful selections are cached per movie or season for two hours, so later episodes and repeated requests can reuse the proven torrent immediately.
+Each round contains at most one candidate for every allowed quality. A healthy
+torrent wins as soon as its exact video file delivers the required requested
+start payload. Only when the complete round fails does AutoStream try the next
+candidate from each quality. The overall test is capped at 30 seconds.
+Successful selections are cached for the exact movie or episode for five
+minutes, then measured again because swarm health changes quickly.
 
 For multi-file torrents, every unrelated file is assigned priority `0`; only the requested `fileIdx` receives maximum priority.
 

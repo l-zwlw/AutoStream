@@ -518,7 +518,7 @@
 
             <div class="card card-pad">
               <h2>Startup fallback</h2>
-              <p class="hint" style="margin-top:8px;">Test torrent candidates with qBittorrent before returning one stream to Stremio.</p>
+              <p class="hint" style="margin-top:8px;">Test one torrent per allowed quality with real video bytes. If a complete round fails, AutoStream tries the next candidates.</p>
 
               <div class="check-row">
                 <div>
@@ -530,7 +530,7 @@
 
               <div class="field">
                 <label for="fallbackTimeout">Seconds per candidate</label>
-                <input class="input" id="fallbackTimeout" type="number" min="6" max="10" step="1" />
+                <input class="input" id="fallbackTimeout" type="number" min="8" max="20" step="1" />
               </div>
 
               <div class="field">
@@ -723,7 +723,7 @@
 
     let addons = [];
     let settings = {
-      fallback: { enabled: true, candidateTimeoutSeconds: 9, maximumCandidates: 12, minimumDownloadedKb: 256 },
+      fallback: { enabled: true, candidateTimeoutSeconds: 18, maximumCandidates: 12, minimumDownloadedKb: 256 },
       midstream: { enabled: false, prebufferMb: 32, stallTimeoutSeconds: 30, segmentSeconds: 4, retentionHours: 12 },
       debrid: { enabled: false, provider: '', apiKey: '' }
     };
@@ -821,7 +821,7 @@
       document.getElementById('debridProvider').value = settings.debrid?.provider || '';
       document.getElementById('debridApiKey').value = settings.debrid?.apiKey || '';
       document.getElementById('fallbackEnabled').checked = settings.fallback?.enabled !== false;
-      document.getElementById('fallbackTimeout').value = Math.max(settings.fallback?.candidateTimeoutSeconds || 9, 6);
+      document.getElementById('fallbackTimeout').value = Math.max(settings.fallback?.candidateTimeoutSeconds || 18, 8);
       document.getElementById('fallbackCandidates').value = Math.max(settings.fallback?.maximumCandidates || 12, 10);
       document.getElementById('fallbackMinimumKb').value = Math.max(settings.fallback?.minimumDownloadedKb || 256, 256);
       document.getElementById('playbackMethod').value = settings.playbackMethod || 'torrent';

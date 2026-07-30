@@ -1,6 +1,32 @@
+import {
+  getStreamEngineStatus,
+  probeEngineTorrent
+} from "./streamEngine";
+
 const qbittorrentUrl = (
   process.env.QBITTORRENT_URL || "http://localhost:7002"
 ).replace(/\/$/, "");
+
+// Many Stremio addons return only an info hash. A fresh AutoStream install
+// cannot rely on a warmed-up DHT yet, so include a small, diverse tracker set
+// when the source addon does not provide one. Duplicate trackers are removed.
+const DEFAULT_TRACKERS = [
+  "udp://tracker.opentrackr.org:1337/announce",
+  "udp://open.stealth.si:80/announce",
+  "udp://tracker.torrent.eu.org:451/announce",
+  "udp://exodus.desync.com:6969/announce",
+  "https://tracker.opentrackr.org:443/announce"
+];
+
+export function torrentSourcesWithDefaults(sources: string[] = []) {
+  const suppliedSources = sources.filter(
+    (source) => typeof source === "string" && source.trim()
+  );
+  const trackerSources = DEFAULT_TRACKERS.map(
+    (tracker) => `tracker:${tracker}`
+  );
+  return [...new Set([...suppliedSources, ...trackerSources])];
+}
 
 export interface QBittorrentStatus {
   online: boolean;
@@ -28,6 +54,7 @@ type TorrentInfo = {
   save_path: string;
   seq_dl: boolean;
   f_l_piece_prio: boolean;
+  category: string;
 };
 
 export type TorrentSummary = Pick<
@@ -89,6 +116,33 @@ export function requiredVideoProofBytes(
   );
 }
 
+export function contiguousReadyBytes(
+  pieceStates: number[],
+  firstPiece: number,
+  lastPiece: number,
+  pieceSize: number,
+  fileSize: number
+) {
+  if (
+    !Number.isFinite(firstPiece) ||
+    !Number.isFinite(lastPiece) ||
+    !Number.isFinite(pieceSize) ||
+    pieceSize <= 0 ||
+    firstPiece < 0 ||
+    lastPiece < firstPiece
+  ) {
+    return 0;
+  }
+
+  let readyPieces = 0;
+  for (let index = firstPiece; index <= lastPiece; index += 1) {
+    if (pieceStates[index] !== 2) break;
+    readyPieces += 1;
+  }
+
+  return Math.min(Math.max(0, fileSize), readyPieces * pieceSize);
+}
+
 export function verificationCandidateOrder<T extends TorrentCandidate>(
   candidates: T[]
 ) {
@@ -144,6 +198,36 @@ export function oneCandidatePerQuality<T extends TorrentCandidate>(
   return selected;
 }
 
+export function verificationCandidatesByWave<T extends TorrentCandidate>(
+  candidates: T[],
+  maximumCandidates: number
+) {
+  const ordered = verificationCandidateOrder(candidates);
+  const qualityOrder = ["1080p", "720p", "4k", "other"];
+  const buckets = new Map(
+    qualityOrder.map((quality) => [
+      quality,
+      ordered.filter((candidate) => candidateQuality(candidate) === quality)
+    ])
+  );
+  const plan: Array<{ candidate: T; wave: number }> = [];
+  let wave = 0;
+
+  while (
+    plan.length < Math.max(0, maximumCandidates) &&
+    qualityOrder.some((quality) => buckets.get(quality)!.length > 0)
+  ) {
+    for (const quality of qualityOrder) {
+      if (plan.length >= maximumCandidates) break;
+      const candidate = buckets.get(quality)!.shift();
+      if (candidate) plan.push({ candidate, wave });
+    }
+    wave += 1;
+  }
+
+  return plan;
+}
+
 export type FallbackOptions = {
   candidateTimeoutSeconds?: number;
   maximumCandidates?: number;
@@ -153,8 +237,8 @@ export type FallbackOptions = {
 function normalizeFallbackOptions(options: FallbackOptions = {}) {
   return {
     candidateTimeoutMs: Math.min(
-      Math.max(Number(options.candidateTimeoutSeconds || 9), 6),
-      10
+      Math.max(Number(options.candidateTimeoutSeconds || 18), 8),
+      20
     ) * 1000,
     maximumCandidates: Math.min(
       Math.max(Number(options.maximumCandidates || 10), 10),
@@ -179,9 +263,11 @@ async function apiRequest(path: string, init?: RequestInit) {
 }
 
 function buildMagnet(candidate: TorrentCandidate) {
-  const trackers = (candidate.sources || [])
+  const suppliedTrackers = torrentSourcesWithDefaults(candidate.sources || [])
     .filter((source) => source.startsWith("tracker:"))
-    .map((source) => source.slice("tracker:".length));
+    .map((source) => source.slice("tracker:".length))
+    .filter(Boolean);
+  const trackers = [...new Set(suppliedTrackers)];
 
   const trackerQuery = trackers
     .map((tracker) => `&tr=${encodeURIComponent(tracker)}`)
@@ -226,6 +312,9 @@ async function addTorrent(candidate: TorrentCandidate) {
     savepath: "/downloads/autostream",
     category: "autostream",
     sequentialDownload: "true",
+    // The first piece must be requested immediately. The last piece may also
+    // be useful for media-container metadata, but it never counts toward the
+    // contiguous playback proof.
     firstLastPiecePrio: "true"
   });
 
@@ -239,6 +328,51 @@ async function addTorrent(candidate: TorrentCandidate) {
 
   if (!response.ok) {
     throw new Error(`qBittorrent add returned HTTP ${response.status}`);
+  }
+}
+
+async function exportTorrent(infoHash: string) {
+  const response = await apiRequest(
+    `/api/v2/torrents/export?hash=${encodeURIComponent(infoHash)}`
+  );
+  if (!response.ok) {
+    throw new Error(`qBittorrent export returned HTTP ${response.status}`);
+  }
+  return Buffer.from(await response.arrayBuffer()).toString("base64");
+}
+
+async function getCandidateTorrentMetadata(
+  candidate: TorrentCandidate,
+  deadline: number,
+  signal?: AbortSignal
+) {
+  const infoHash = candidate.infoHash!.toLowerCase();
+  let existing = await getTorrent(infoHash);
+  const managedByAutoStream = !existing || existing.category === "autostream";
+  if (existing?.category === "autostream") {
+    await deleteTorrent(infoHash);
+    await delay(150);
+    existing = null;
+  }
+  if (!existing) await addTorrent(candidate);
+
+  try {
+    while (Date.now() < deadline && !signal?.aborted) {
+      const torrent = await getTorrent(infoHash);
+      if (torrent && torrent.size > 0) {
+        return await exportTorrent(infoHash);
+      }
+      await delay(250);
+    }
+    throw new Error(
+      signal?.aborted
+        ? "cancelled after another candidate succeeded"
+        : "torrent metadata did not arrive in time"
+    );
+  } finally {
+    if (managedByAutoStream) {
+      await deleteTorrent(infoHash).catch(() => undefined);
+    }
   }
 }
 
@@ -337,7 +471,10 @@ async function toggleTorrentOption(infoHash: string, endpoint: string) {
   }
 }
 
-async function ensureStreamingPriorities(infoHash: string) {
+async function ensureStreamingPriorities(
+  infoHash: string,
+  prioritizeLastPiece: boolean
+) {
   const torrent = await getTorrent(infoHash);
   if (!torrent) {
     throw new Error("Torrent disappeared while setting streaming priorities");
@@ -348,14 +485,15 @@ async function ensureStreamingPriorities(infoHash: string) {
   if (!torrent.seq_dl) {
     await toggleTorrentOption(infoHash, "toggleSequentialDownload");
   }
-  if (!torrent.f_l_piece_prio) {
+  if (torrent.f_l_piece_prio !== prioritizeLastPiece) {
     await toggleTorrentOption(infoHash, "toggleFirstLastPiecePrio");
   }
 }
 
 async function configureSelectedFile(
   infoHash: string,
-  requestedFileIndex?: number
+  requestedFileIndex?: number,
+  prioritizeLastPiece = false
 ) {
   const files = await getTorrentFiles(infoHash);
   const requestedFile =
@@ -383,15 +521,26 @@ async function configureSelectedFile(
     throw new Error("No playable video file found in torrent");
   }
 
-  await setFilePriority(
-    infoHash,
-    files
-      .filter((file) => file.index !== selectedFile.index)
-      .map((file) => file.index),
-    0
-  );
-  await setFilePriority(infoHash, [selectedFile.index], 7);
-  await ensureStreamingPriorities(infoHash);
+  // Metadata acquisition may already have queued random piece requests for
+  // every file. Merely changing priorities does not cancel those requests,
+  // which can leave the actual beginning of the selected video incomplete
+  // while megabytes of unrelated pieces arrive. Stop and restart around the
+  // priority change so libtorrent builds a clean sequential request queue.
+  await stopTorrent(infoHash);
+  await delay(250);
+  try {
+    await setFilePriority(
+      infoHash,
+      files
+        .filter((file) => file.index !== selectedFile.index)
+        .map((file) => file.index),
+      0
+    );
+    await setFilePriority(infoHash, [selectedFile.index], 7);
+    await ensureStreamingPriorities(infoHash, prioritizeLastPiece);
+  } finally {
+    await startTorrent(infoHash);
+  }
 
   return selectedFile.index;
 }
@@ -483,7 +632,8 @@ export async function prepareStreamingCandidate(
       if (torrent.size > 0 && selectedFileIndex === null) {
         selectedFileIndex = await configureSelectedFile(
           infoHash,
-          candidate.fileIdx
+          candidate.fileIdx,
+          true
         );
       }
 
@@ -568,8 +718,7 @@ async function testCandidate(
   const startedAt = Date.now();
   let selectedFileIndex: number | null = null;
   let metadataReady = false;
-  let downloadedBaseline: number | null = null;
-  let lastNewlyDownloadedBytes = 0;
+  let lastContiguousBytes = 0;
   let lastRequiredProofBytes = options.minimumDownloadedBytes;
   let lastSeeds = 0;
 
@@ -599,20 +748,13 @@ async function testCandidate(
       if (hasMetadata && selectedFileIndex === null) {
         selectedFileIndex = await configureSelectedFile(
           infoHash,
-          candidate.fileIdx
+          candidate.fileIdx,
+          true
         );
         metadataReady = true;
-
-        // qBittorrent can keep an individual file's `progress` at zero while
-        // pieces for that file are already arriving. Measure fresh torrent
-        // bytes only after every other file has been disabled instead. This
-        // also prevents metadata or previously downloaded pack data from
-        // making a candidate look healthy.
-        const configuredTorrent = await getTorrent(infoHash);
-        downloadedBaseline = configuredTorrent?.downloaded ?? torrent.downloaded;
         console.log(
           `qBittorrent restricted ${infoHash} to file index ${selectedFileIndex}`,
-          `(baseline ${downloadedBaseline} bytes)`
+          "(sequential start-data verification)"
         );
       }
 
@@ -622,39 +764,48 @@ async function testCandidate(
           : (await getTorrentFiles(infoHash)).find(
               (file) => file.index === selectedFileIndex
             );
-      const newlyDownloadedBytes =
-        downloadedBaseline === null
-          ? 0
-          : Math.max(
-              0,
-              Number(torrent.downloaded || 0) - downloadedBaseline
-            );
-      lastNewlyDownloadedBytes = newlyDownloadedBytes;
       lastSeeds = torrent.num_seeds;
       const requiredProofBytes = requiredVideoProofBytes(
         selectedFile?.size || 0,
         options.minimumDownloadedBytes
       );
       lastRequiredProofBytes = requiredProofBytes;
-      // This is deliberately binary: the selected video file either delivered
-      // the configured amount of real data or it did not. Seeder counts,
-      // estimated speed and statistical rank never decide the winner.
-      const hasActivity =
+      let contiguousBytes = 0;
+      if (selectedFile?.piece_range) {
+        const [firstPiece, lastPiece] = selectedFile.piece_range;
+        const [properties, pieceStates] = await Promise.all([
+          getTorrentProperties(infoHash),
+          getPieceStates(infoHash)
+        ]);
+        contiguousBytes = contiguousReadyBytes(
+          pieceStates,
+          firstPiece,
+          lastPiece,
+          properties.piece_size,
+          selectedFile.size
+        );
+      }
+      lastContiguousBytes = contiguousBytes;
+
+      // Seeder counts, estimated speed and total torrent progress never decide
+      // the winner. Only verified, contiguous bytes from the beginning of the
+      // exact requested video file count as playable proof.
+      const hasPlayableStart =
         Boolean(selectedFile && selectedFile.priority > 0) &&
-        newlyDownloadedBytes >= requiredProofBytes;
+        contiguousBytes >= requiredProofBytes;
       const hasPeers =
         torrent.num_seeds > 0 ||
         torrent.num_leechs > 0 ||
         torrent.downloaded >= torrent.size;
 
-      if (hasMetadata && hasActivity && hasPeers) {
+      if (hasMetadata && hasPlayableStart && hasPeers) {
         return {
           success: true,
           reason:
-            `selected video file delivered ${newlyDownloadedBytes} verified bytes ` +
+            `selected video file delivered ${contiguousBytes} contiguous start bytes ` +
             `(required ${requiredProofBytes})`,
           metadataReady: true,
-          newlyDownloadedBytes
+          contiguousBytes
         };
       }
 
@@ -666,10 +817,10 @@ async function testCandidate(
       reason: signal?.aborted
         ? "cancelled after another candidate succeeded"
         : `no usable data within ${options.candidateTimeoutMs / 1000} seconds ` +
-          `(downloaded ${lastNewlyDownloadedBytes}/${lastRequiredProofBytes} ` +
-          `selected-file bytes, seeds ${lastSeeds})`,
+          `(contiguous start ${lastContiguousBytes}/${lastRequiredProofBytes} ` +
+          `bytes, seeds ${lastSeeds})`,
       metadataReady,
-      newlyDownloadedBytes: lastNewlyDownloadedBytes
+      contiguousBytes: lastContiguousBytes
     };
   } finally {
     if (createdByAutoStream) {
@@ -678,9 +829,29 @@ async function testCandidate(
   }
 }
 
+async function testCandidateWithStreamEngine(
+  candidate: TorrentCandidate,
+  options: ReturnType<typeof normalizeFallbackOptions>,
+  deadline: number,
+  signal?: AbortSignal
+) {
+  const remainingMs = Math.max(
+    1000,
+    Math.min(options.candidateTimeoutMs, deadline - Date.now())
+  );
+  return probeEngineTorrent(
+    candidate,
+    (fileSize) =>
+      requiredVideoProofBytes(fileSize, options.minimumDownloadedBytes),
+    remainingMs,
+    signal
+  );
+}
+
 export async function selectFirstPlayableTorrent(
   rankedStreams: TorrentCandidate[],
-  fallbackOptions: FallbackOptions = {}
+  fallbackOptions: FallbackOptions = {},
+  externalSignal?: AbortSignal
 ): Promise<FallbackSelection> {
   const options = normalizeFallbackOptions(fallbackOptions);
   const validCandidates = rankedStreams
@@ -688,8 +859,11 @@ export async function selectFirstPlayableTorrent(
       typeof stream.infoHash === "string" &&
       /^[a-fA-F0-9]{40}$/.test(stream.infoHash)
     );
-  const candidates = oneCandidatePerQuality(validCandidates);
-  if (!candidates.length) {
+  const candidatePlan = verificationCandidatesByWave(
+    validCandidates,
+    options.maximumCandidates
+  );
+  if (!candidatePlan.length) {
     return { stream: null, attempts: [] };
   }
   type TestedCandidate = {
@@ -698,75 +872,93 @@ export async function selectFirstPlayableTorrent(
   };
   const attempts: FallbackAttempt[] = [];
 
-  // Exactly one active torrent per allowed quality. The first selected video
-  // file to deliver its proportional proof data wins.
-  const selectionDeadline = Date.now() + options.candidateTimeoutMs;
-  const probeController = new AbortController();
-  let remaining = candidates.length;
-  let settled = false;
-  let resolveWinner: (value: TestedCandidate | null) => void = () => undefined;
-  const firstSuccess = new Promise<TestedCandidate | null>((resolve) => {
-    resolveWinner = resolve;
-  });
-
-  const tasks = candidates.map(async (candidate) => {
-    const infoHash = candidate.infoHash!.toLowerCase();
-    let tested: TestedCandidate;
-    try {
-      const result = await testCandidate(
-        candidate,
-        options,
-        selectionDeadline,
-        probeController.signal
-      );
-      tested = {
-        candidate,
-        attempt: {
-          infoHash,
-          title: candidate.title || infoHash,
-          success: result.success,
-          reason: result.reason
-        }
-      };
-    } catch (error) {
-      const reason = error instanceof Error ? error.message : "Unknown error";
-      tested = {
-        candidate,
-        attempt: {
-          infoHash,
-          title: candidate.title || infoHash,
-          success: false,
-          reason
-        }
-      };
-    }
-
-    console.log(
-      `Fallback candidate ${tested.attempt.success ? "accepted" : "rejected"}:`,
-      tested.attempt.title,
-      `(${tested.attempt.reason})`
-    );
-    attempts.push(tested.attempt);
-    remaining -= 1;
-
-    if (!settled && tested.attempt.success) {
-      settled = true;
-      resolveWinner(tested);
-    } else if (!settled && remaining === 0) {
-      settled = true;
-      resolveWinner(null);
-    }
-
-    return tested;
-  });
-
-  const winner = await firstSuccess;
-  if (winner) {
-    probeController.abort();
+  // Test exactly one torrent per quality in each round. Only when every
+  // quality in that round fails do we advance to the next candidates. A fast
+  // verified winner returns immediately; old swarms may use the full round.
+  const selectionDeadline =
+    Date.now() + Math.min(30_000, options.candidateTimeoutMs * 2);
+  const streamEngine = await getStreamEngineStatus();
+  const waves = new Map<number, TorrentCandidate[]>();
+  for (const { candidate, wave } of candidatePlan) {
+    const candidates = waves.get(wave) || [];
+    candidates.push(candidate);
+    waves.set(wave, candidates);
   }
-  await Promise.allSettled(tasks);
 
-  return { stream: winner?.candidate || null, attempts };
+  for (const waveCandidates of waves.values()) {
+    if (Date.now() >= selectionDeadline || externalSignal?.aborted) break;
+    const probeController = new AbortController();
+    const probeSignal = externalSignal
+      ? AbortSignal.any([externalSignal, probeController.signal])
+      : probeController.signal;
+    const waveDeadline = Math.min(
+      selectionDeadline,
+      Date.now() + options.candidateTimeoutMs
+    );
+    const tasks = waveCandidates.map(async (candidate) => {
+      const infoHash = candidate.infoHash!.toLowerCase();
+      let tested: TestedCandidate;
+      try {
+        const result = streamEngine.online
+          ? await testCandidateWithStreamEngine(
+              candidate,
+              options,
+              waveDeadline,
+              probeSignal
+            )
+          : await testCandidate(
+              candidate,
+              options,
+              waveDeadline,
+              probeSignal
+            );
+        tested = {
+          candidate,
+          attempt: {
+            infoHash,
+            title: candidate.title || infoHash,
+            success: result.success,
+            reason: result.reason
+          }
+        };
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : "Unknown error";
+        tested = {
+          candidate,
+          attempt: {
+            infoHash,
+            title: candidate.title || infoHash,
+            success: false,
+            reason
+          }
+        };
+      }
+
+      console.log(
+        `Fallback candidate ${tested.attempt.success ? "accepted" : "rejected"}:`,
+        tested.attempt.title,
+        `(${tested.attempt.reason})`
+      );
+      attempts.push(tested.attempt);
+      return tested.attempt.success ? tested : null;
+    });
+
+    const winner = await Promise.any(
+      tasks.map(async (task) => {
+        const tested = await task;
+        if (!tested) throw new Error("candidate failed");
+        return tested;
+      })
+    ).catch(() => null);
+    if (winner) {
+      probeController.abort();
+      void Promise.allSettled(tasks);
+      return { stream: winner.candidate, attempts };
+    }
+    await Promise.allSettled(tasks);
+  }
+
+  return { stream: null, attempts };
 }
 
 export async function getQBittorrentStatus(): Promise<QBittorrentStatus> {

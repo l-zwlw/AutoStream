@@ -1,6 +1,6 @@
 {
   "name": "autostream",
-  "version": "1.3.2",
+  "version": "1.3.3",
   "description": "Self-hosted Stremio stream selection and startup fallback.",
   "main": "index.js",
   "scripts": {

@@ -34,9 +34,9 @@ const defaultSettings = {
     preferredCodec: "automatic"
   },
   fallback: {
-    verificationVersion: 7,
+    verificationVersion: 11,
     enabled: true,
-    candidateTimeoutSeconds: 9,
+    candidateTimeoutSeconds: 18,
     maximumCandidates: 12,
     minimumDownloadedKb: 256
   },
@@ -114,18 +114,18 @@ export function normalizeSettings(settings: any) {
       minimumSeeders: clamp(currentSettings.rules?.minimumSeeders, 0, 10000, 0)
     },
     fallback: {
-      verificationVersion: 7,
+      verificationVersion: 11,
       enabled: currentSettings.fallback?.enabled !== false,
       candidateTimeoutSeconds: clamp(
-        currentSettings.fallback?.verificationVersion === 7
+        currentSettings.fallback?.verificationVersion === 11
           ? currentSettings.fallback?.candidateTimeoutSeconds
           : defaultSettings.fallback.candidateTimeoutSeconds,
-        6,
-        10,
+        8,
+        20,
         defaultSettings.fallback.candidateTimeoutSeconds
       ),
       maximumCandidates: clamp(
-        currentSettings.fallback?.verificationVersion === 7
+        currentSettings.fallback?.verificationVersion === 11
           ? currentSettings.fallback?.maximumCandidates
           : defaultSettings.fallback.maximumCandidates,
         10,
@@ -133,7 +133,7 @@ export function normalizeSettings(settings: any) {
         defaultSettings.fallback.maximumCandidates
       ),
       minimumDownloadedKb: clamp(
-        currentSettings.fallback?.verificationVersion === 7
+        currentSettings.fallback?.verificationVersion === 11
           ? currentSettings.fallback?.minimumDownloadedKb
           : defaultSettings.fallback.minimumDownloadedKb,
         256,
@@ -227,7 +227,7 @@ export function getSettings() {
   const settings = JSON.parse(fs.readFileSync(settingsFile, "utf-8"));
 
   const normalized = normalizeSettings(settings);
-  if (settings.fallback?.verificationVersion !== 7) {
+  if (settings.fallback?.verificationVersion !== 11) {
     fs.writeFileSync(settingsFile, JSON.stringify(normalized, null, 2));
   }
   return normalized;

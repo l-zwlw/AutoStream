@@ -1,3 +1,4 @@
+import base64
 import os
 import re
 import shutil
@@ -14,9 +15,21 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 ROOT = Path(os.environ.get("ENGINE_DOWNLOADS_PATH", "/downloads/engine"))
+# Engine sessions only exist in memory. After a container restart their sparse
+# verification files can never be reused safely, so clear them before accepting
+# new probes instead of leaking gigabytes of abandoned test data.
+if ROOT.exists():
+    shutil.rmtree(ROOT, ignore_errors=True)
 ROOT.mkdir(parents=True, exist_ok=True)
 METADATA_TIMEOUT = int(os.environ.get("ENGINE_METADATA_TIMEOUT", "25"))
 PIECE_TIMEOUT = int(os.environ.get("ENGINE_PIECE_TIMEOUT", "30"))
+DEFAULT_TRACKERS = [
+    "udp://tracker.opentrackr.org:1337/announce",
+    "udp://open.stealth.si:80/announce",
+    "udp://tracker.torrent.eu.org:451/announce",
+    "udp://exodus.desync.com:6969/announce",
+    "https://tracker.opentrackr.org:443/announce",
+]
 
 app = FastAPI(title="AutoStream libtorrent engine", docs_url=None, redoc_url=None)
 session = lt.session({
@@ -28,12 +41,27 @@ session = lt.session({
     "alert_mask": int(lt.alert.category_t.error_notification),
     "user_agent": "AutoStream/1.2"
 })
+for router, port in [
+    ("router.bittorrent.com", 6881),
+    ("router.utorrent.com", 6881),
+    ("dht.transmissionbt.com", 6881),
+]:
+    try:
+        session.add_dht_router(router, port)
+    except Exception:
+        pass
 
 
 class PrepareRequest(BaseModel):
     infoHash: str
     fileIdx: Optional[int] = None
     sources: list[str] = Field(default_factory=list)
+    torrentData: Optional[str] = None
+
+
+class ProbeRequest(PrepareRequest):
+    timeoutMs: int = Field(default=9000, ge=1000, le=30000)
+    minimumDownloadedKb: int = Field(default=256, ge=256, le=16384)
 
 
 class EngineTorrent:
@@ -62,6 +90,7 @@ def magnet_uri(request: PrepareRequest) -> str:
     for source in request.sources:
         if source.startswith("tracker:"):
             trackers.append(source[len("tracker:"):])
+    trackers = list(dict.fromkeys(trackers + DEFAULT_TRACKERS))
     query = "".join(f"&tr={quote(tracker, safe='')}" for tracker in trackers)
     return f"magnet:?xt=urn:btih:{request.infoHash}{query}"
 
@@ -70,8 +99,10 @@ def video_file(name: str) -> bool:
     return bool(re.search(r"\.(mkv|mp4|avi|mov|m4v|webm|ts)$", name, re.I))
 
 
-def wait_metadata(handle):
-    deadline = time.time() + METADATA_TIMEOUT
+def wait_metadata(handle, timeout_seconds: Optional[float] = None):
+    deadline = time.time() + (
+        timeout_seconds if timeout_seconds is not None else METADATA_TIMEOUT
+    )
     while time.time() < deadline:
         if handle.status().has_metadata:
             return handle.torrent_file()
@@ -126,16 +157,36 @@ def prepare(request: PrepareRequest):
     if created_handle:
         params = {
             "save_path": str(save_path),
-            "storage_mode": lt.storage_mode_t.storage_mode_sparse,
-            "url": magnet_uri(request)
+            "storage_mode": lt.storage_mode_t.storage_mode_sparse
         }
+        if request.torrentData:
+            try:
+                decoded = base64.b64decode(request.torrentData)
+                info = lt.torrent_info(lt.bdecode(decoded))
+                supplied_trackers = [
+                    source[len("tracker:"):]
+                    for source in request.sources
+                    if source.startswith("tracker:")
+                ]
+                for tracker in dict.fromkeys(supplied_trackers + DEFAULT_TRACKERS):
+                    info.add_tracker(tracker)
+                params["ti"] = info
+            except Exception as error:
+                raise HTTPException(400, f"Invalid torrent metadata: {error}")
+        else:
+            params["url"] = magnet_uri(request)
         handle = session.add_torrent(params)
         with global_lock:
             hash_handles[info_hash] = handle
 
     try:
         if info is None:
-            info = wait_metadata(handle)
+            metadata_timeout = (
+                max(0.1, request.timeoutMs / 1000)
+                if isinstance(request, ProbeRequest)
+                else None
+            )
+            info = wait_metadata(handle, metadata_timeout)
         file_index, file_size, relative_path = select_file(info, request.fileIdx)
         engine_id = str(uuid.uuid4())
         item = EngineTorrent(
@@ -182,7 +233,7 @@ def view(item: EngineTorrent):
     }
 
 
-def ensure_range(item: EngineTorrent, start: int, end: int):
+def ensure_range(item: EngineTorrent, start: int, end: int, timeout_seconds: Optional[float] = None):
     mapping = item.torrent_info.map_file(item.file_index, start, end - start + 1)
     piece_size = item.torrent_info.piece_length()
     first_piece = mapping.piece
@@ -194,7 +245,9 @@ def ensure_range(item: EngineTorrent, start: int, end: int):
             item.handle.piece_priority(piece, 7)
             item.handle.set_piece_deadline(piece, offset * 250)
 
-    deadline = time.time() + PIECE_TIMEOUT
+    deadline = time.time() + (
+        timeout_seconds if timeout_seconds is not None else PIECE_TIMEOUT
+    )
     while time.time() < deadline:
         if all(item.handle.have_piece(piece) for piece in range(first_piece, last_piece + 1)):
             return
@@ -203,6 +256,108 @@ def ensure_range(item: EngineTorrent, start: int, end: int):
             raise RuntimeError(status.errc.message())
         time.sleep(0.1)
     raise TimeoutError("Requested torrent pieces timed out")
+
+
+def probe_range_payload(
+    item: EngineTorrent,
+    start: int,
+    end: int,
+    required_bytes: int,
+    timeout_seconds: float,
+):
+    mapping = item.torrent_info.map_file(
+        item.file_index, start, end - start + 1
+    )
+    piece_size = item.torrent_info.piece_length()
+    first_piece = mapping.piece
+    absolute_end = mapping.start + mapping.length - 1
+    last_piece = min(
+        item.torrent_info.num_pieces() - 1,
+        first_piece + absolute_end // piece_size,
+    )
+
+    # Probe only the pieces covering the beginning of the exact requested
+    # video. File priority 7 would allow libtorrent to fetch arbitrary later
+    # pieces too, making total payload a misleading health signal.
+    priorities = [0] * item.torrent_info.files().num_files()
+    priorities[item.file_index] = 1
+    item.handle.prioritize_files(priorities)
+    try:
+        item.handle.set_sequential_download(True)
+    except Exception:
+        pass
+    baseline = item.handle.status().total_payload_download
+    with item.lock:
+        for offset, piece in enumerate(range(first_piece, last_piece + 1)):
+            item.handle.piece_priority(piece, 7)
+            item.handle.set_piece_deadline(piece, offset * 250)
+
+    deadline = time.time() + timeout_seconds
+    last_payload = 0
+    while time.time() < deadline:
+        status = item.handle.status()
+        if status.errc.value() != 0:
+            raise RuntimeError(status.errc.message())
+        last_payload = max(
+            0, status.total_payload_download - baseline
+        )
+        if last_payload >= required_bytes:
+            return last_payload, all(
+                item.handle.have_piece(piece)
+                for piece in range(first_piece, last_piece + 1)
+            )
+        time.sleep(0.1)
+    raise TimeoutError(
+        f"Requested start data timed out ({last_payload}/{required_bytes} bytes)"
+    )
+
+
+def proof_bytes(file_size: int, minimum_kb: int) -> int:
+    proportional = max(0, int((file_size * 0.0001) + 0.999999))
+    return min(
+        file_size,
+        4 * 1024 * 1024,
+        max(256 * 1024, minimum_kb * 1024, proportional),
+    )
+
+
+@app.post("/probe")
+def probe(request: ProbeRequest):
+    started = time.time()
+    engine_id = None
+    try:
+        # Use the same libtorrent handle for metadata discovery and the media
+        # proof. This avoids the old qBittorrent -> export -> libtorrent double
+        # discovery pass which consumed most of the user's startup deadline.
+        prepared = prepare(request)
+        engine_id = prepared["id"]
+        item = torrents[engine_id]
+        required = proof_bytes(item.file_size, request.minimumDownloadedKb)
+        remaining = max(0.1, request.timeoutMs / 1000 - (time.time() - started))
+        received, fully_verified = probe_range_payload(
+            item, 0, required - 1, required, remaining
+        )
+
+        return {
+            "success": True,
+            "bytes": received,
+            "fullyVerifiedPieces": fully_verified,
+            "fileIdx": item.file_index,
+            "fileName": item.torrent_info.files().file_path(item.file_index),
+            "fileSize": item.file_size,
+            "peers": item.handle.status().num_peers,
+            "elapsedMs": int((time.time() - started) * 1000),
+        }
+    except HTTPException:
+        raise
+    except Exception as error:
+        raise HTTPException(504, str(error))
+    finally:
+        if engine_id and engine_id in torrents:
+            try:
+                remove(engine_id)
+            except Exception:
+                pass
 
 
 @app.get("/stream/{engine_id}")

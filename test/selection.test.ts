@@ -5,9 +5,12 @@ import { deduplicateStreams } from "../src/services/dedupe";
 import { rankStreams } from "../src/services/sorter";
 import { verifiedSelectionKey } from "../src/streams";
 import {
+  contiguousReadyBytes,
   oneCandidatePerQuality,
   requiredVideoProofBytes,
-  verificationCandidateOrder
+  verificationCandidatesByWave,
+  verificationCandidateOrder,
+  torrentSourcesWithDefaults
 } from "../src/services/qbittorrent";
 
 test("deduplicates the same torrent and file index", () => {
@@ -249,6 +252,27 @@ test("verification races exactly one torrent per quality", () => {
   );
 });
 
+test("verification schedules the next candidate in each quality as a later wave", () => {
+  const plan = verificationCandidatesByWave([
+    { title: "First 1080p" },
+    { title: "Second 1080p" },
+    { title: "First 720p" },
+    { title: "Second 720p" },
+    { title: "First 2160p" }
+  ], 5);
+
+  assert.deepEqual(
+    plan.map(({ candidate, wave }) => [candidate.title, wave]),
+    [
+      ["First 1080p", 0],
+      ["First 720p", 0],
+      ["First 2160p", 0],
+      ["Second 1080p", 1],
+      ["Second 720p", 1]
+    ]
+  );
+});
+
 test("video proof is 0.01 percent with a 256 KB floor and 4 MB cap", () => {
   const configured = 256 * 1024;
   assert.equal(
@@ -264,6 +288,38 @@ test("video proof is 0.01 percent with a 256 KB floor and 4 MB cap", () => {
     4 * 1024 * 1024
   );
   assert.equal(requiredVideoProofBytes(10, configured), configured);
+});
+
+test("only contiguous completed pieces from the start count as playable proof", () => {
+  const pieceSize = 256 * 1024;
+
+  assert.equal(
+    contiguousReadyBytes([0, 2, 2, 0, 2], 1, 4, pieceSize, 4 * pieceSize),
+    2 * pieceSize
+  );
+  assert.equal(
+    contiguousReadyBytes([0, 0, 2, 2, 2], 1, 4, pieceSize, 4 * pieceSize),
+    0
+  );
+  assert.equal(
+    contiguousReadyBytes([2, 2, 2], 0, 2, pieceSize, 600_000),
+    600_000
+  );
+});
+
+test("passthrough winners receive peer discovery trackers", () => {
+  const sources = torrentSourcesWithDefaults([
+    "dht:abc",
+    "tracker:udp://custom.example:80/announce"
+  ]);
+  assert.ok(sources.includes("dht:abc"));
+  assert.ok(sources.includes("tracker:udp://custom.example:80/announce"));
+  assert.ok(
+    sources.some((source) =>
+      source.startsWith("tracker:udp://tracker.opentrackr.org")
+    )
+  );
+  assert.equal(new Set(sources).size, sources.length);
 });
 
 test("Jackett candidates enter verification ahead of equivalent addon results", () => {

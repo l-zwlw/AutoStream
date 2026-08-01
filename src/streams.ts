@@ -15,17 +15,26 @@ import { selectFirstPlayableHttp } from "./services/httpStreams";
 const experimentalHttpEnabled =
   process.env.ENABLE_EXPERIMENTAL_HTTP === "true";
 
-const verifiedSelectionCache = new Map<
-  string,
-  { infoHash: string; expiresAt: number }
->();
 const verificationInFlight = new Map<
   string,
   ReturnType<typeof selectFirstPlayableTorrent>
 >();
-// Recheck regularly: swarm health can change quickly and a once-fast torrent
-// must not remain sticky for half an hour.
-const verifiedSelectionLifetimeMs = 5 * 60 * 1000;
+
+// Stremio may request the same stream resource more than once while opening a
+// detail page. Hosted HTTP sources can be briefly unavailable on the second
+// request even though AutoStream just proved the first response playable.
+// Keep only verified direct winners for a short period. Torrent winners are
+// deliberately not cached here because swarm/file health can change quickly.
+const verifiedDirectWinners = new Map<
+  string,
+  { stream: any; expiresAt: number }
+>();
+const verifiedTorrentWinners = new Map<
+  string,
+  { stream: any; expiresAt: number }
+>();
+const verifiedDirectWinnerTtlMs = 60_000;
+const verifiedTorrentWinnerTtlMs = 60_000;
 
 export function verifiedSelectionKey(type: string, id: string, settings: any) {
   const selectionSettings = {
@@ -43,20 +52,33 @@ export function verifiedSelectionKey(type: string, id: string, settings: any) {
 }
 
 function activeVerificationKey(type: string, id: string, settings: any) {
-  return `${type}:${id}`;
+  return verifiedSelectionKey(type, id, settings);
 }
 
-function presentDirectStream(stream: any) {
+export function presentDirectStream(stream: any) {
+  const behaviorHints = { ...(stream.behaviorHints || {}) };
+  const filename = String(behaviorHints.filename || "").toLowerCase();
+
+  // Stremio's protocol requires non-MP4 HTTP media (for example MKV) to be
+  // marked notWebReady. The native apps then route it through their streaming
+  // server. Removing this source hint makes the web-based Stremio 5 UI hide
+  // the stream before playback can even be attempted.
+  if (filename && !filename.endsWith(".mp4")) {
+    behaviorHints.notWebReady = true;
+  }
+
   return {
     ...Object.fromEntries(
       Object.entries(stream).filter(([key]) => !key.startsWith("_autostream"))
     ),
     name: "AutoStream",
     title: "🍿 HTTP",
-    behaviorHints: {
-      ...stream.behaviorHints
-    }
+    behaviorHints
   };
+}
+
+export function isStremioWebReadyDirect(stream: any) {
+  return presentDirectStream(stream).behaviorHints.notWebReady !== true;
 }
 
 function presentTorrentStream(stream: any) {
@@ -79,7 +101,25 @@ export async function getStreams(
   publicBaseUrl?: string,
   settingsOverride?: any
 ) {
+  const requestStartedAt = Date.now();
+  const responseDeadlineMs = 9_800;
   const settings = settingsOverride || getSettings();
+  const selectionKey = verifiedSelectionKey(type, id, settings);
+  if (!settingsOverride) {
+    const cachedTorrent = verifiedTorrentWinners.get(selectionKey);
+    if (cachedTorrent && cachedTorrent.expiresAt > Date.now()) {
+      console.log("Using recently verified torrent winner:", `${type}:${id}`);
+      return [presentTorrentStream(cachedTorrent.stream)];
+    }
+    if (cachedTorrent) verifiedTorrentWinners.delete(selectionKey);
+
+    const cachedDirect = verifiedDirectWinners.get(selectionKey);
+    if (cachedDirect && cachedDirect.expiresAt > Date.now()) {
+      console.log("Using recently verified HTTP winner:", `${type}:${id}`);
+      return [presentDirectStream(cachedDirect.stream)];
+    }
+    if (cachedDirect) verifiedDirectWinners.delete(selectionKey);
+  }
   const debridMode = Boolean(
     settings.debrid?.enabled &&
     settings.debrid?.provider &&
@@ -159,48 +199,57 @@ export async function getStreams(
     return [];
   }
 
-  const directCandidates = ranked.filter(
-    (candidate) => typeof candidate.url === "string"
-  );
+  // Direct streams frequently do not include a resolution label. They still
+  // deserve a real media probe instead of being discarded by torrent quality
+  // filters before the HTTP/torrent race begins.
+  const directCandidates = deduplicateStreams([
+    ...ranked.filter((candidate) => typeof candidate.url === "string"),
+    ...streams.filter((candidate) => typeof candidate.url === "string")
+  ]);
   const torrentCandidates = ranked.filter(
     (candidate) =>
       typeof candidate.infoHash === "string" &&
       /^[a-fA-F0-9]{40}$/.test(candidate.infoHash)
   );
+  console.log("Candidate pool:", {
+    addonStreams: addonStreams.length,
+    jackettStreams: jackettStreams.length,
+    http: directCandidates.length,
+    torrents: torrentCandidates.length
+  });
   let stream = torrentCandidates[0];
 
   if (settings.playbackMethod === "torrent") {
+    // Source discovery and verification share one user-facing deadline. This
+    // prevents a 2-second Jackett search followed by a fresh 9-second probe.
+    const elapsedMs = Date.now() - requestStartedAt;
+    const verificationBudgetMs = Math.max(
+      6_000,
+      responseDeadlineMs - elapsedMs
+    );
+    const fallbackSettings = {
+      ...settings.fallback,
+      candidateTimeoutSeconds: Math.min(
+        Number(settings.fallback?.candidateTimeoutSeconds || 9),
+        verificationBudgetMs / 1000
+      )
+    };
     const raceController = new AbortController();
     const directPromise = selectFirstPlayableHttp(
       directCandidates,
       4,
-      4_000,
+      Math.min(4_000, verificationBudgetMs),
       raceController.signal
     );
-    const cacheKey = verifiedSelectionKey(type, id, settings);
     const inFlightKey = activeVerificationKey(type, id, settings);
-    const cached = verifiedSelectionCache.get(cacheKey);
-    const cachedStream =
-      cached && cached.expiresAt > Date.now()
-        ? torrentCandidates.find(
-            (candidate) =>
-              candidate.infoHash?.toLowerCase() === cached.infoHash
-          )
-        : undefined;
-
-    if (cachedStream) {
-      stream = cachedStream;
-      raceController.abort();
-      console.log("Using verified passthrough selection:", stream.infoHash);
-    } else {
-      if (cached) verifiedSelectionCache.delete(cacheKey);
+    {
       const qbittorrent = await getQBittorrentStatus();
       if (qbittorrent.online && settings.fallback?.enabled !== false) {
         let verification = verificationInFlight.get(inFlightKey);
         if (!verification) {
           verification = selectFirstPlayableTorrent(
             torrentCandidates,
-            settings.fallback,
+            fallbackSettings,
             directCandidates.length ? raceController.signal : undefined
           );
           if (!directCandidates.length) {
@@ -218,11 +267,17 @@ export async function getStreams(
           for (const attempt of direct.attempts) {
             console.log(
               `HTTP candidate ${attempt.success ? "accepted" : "rejected"}:`,
-              attempt.url,
+              "configured addon stream",
               `(${attempt.reason})`
             );
           }
           if (!direct.stream) throw new Error("no HTTP stream passed verification");
+          if (!isStremioWebReadyDirect(direct.stream)) {
+            console.log(
+              "Verified HTTP candidate requires native proxy; continuing torrent race"
+            );
+            throw new Error("HTTP stream is not visible in the Stremio web client");
+          }
           return { kind: "http" as const, stream: direct.stream };
         });
 
@@ -239,27 +294,41 @@ export async function getStreams(
           return [];
         }
         if (winner.kind === "http") {
+          if (!settingsOverride) {
+            verifiedDirectWinners.set(selectionKey, {
+              stream: winner.stream,
+              expiresAt: Date.now() + verifiedDirectWinnerTtlMs
+            });
+          }
           return [presentDirectStream(winner.stream)];
         }
 
         for (const attempt of winner.fallback.attempts) {
           if (
-            attempt.reason !== "cancelled after another candidate succeeded"
+            attempt.reason !== "probe cancelled after a winner or request deadline"
           ) {
             recordStreamOutcome(attempt.infoHash, attempt.success);
           }
         }
         stream = winner.stream;
-        if (stream.infoHash) {
-          verifiedSelectionCache.set(cacheKey, {
-            infoHash: stream.infoHash.toLowerCase(),
-            expiresAt: Date.now() + verifiedSelectionLifetimeMs
+        if (!settingsOverride) {
+          verifiedTorrentWinners.set(selectionKey, {
+            stream,
+            expiresAt: Date.now() + verifiedTorrentWinnerTtlMs
           });
         }
       } else {
         const direct = await directPromise;
         raceController.abort();
-        if (direct.stream) return [presentDirectStream(direct.stream)];
+        if (direct.stream && isStremioWebReadyDirect(direct.stream)) {
+          if (!settingsOverride) {
+            verifiedDirectWinners.set(selectionKey, {
+              stream: direct.stream,
+              expiresAt: Date.now() + verifiedDirectWinnerTtlMs
+            });
+          }
+          return [presentDirectStream(direct.stream)];
+        }
         if (!stream) {
           console.warn("No verified HTTP stream and no torrent is available");
           return [];
@@ -270,12 +339,25 @@ export async function getStreams(
       }
     }
 
-    console.log("Verified passthrough selection:", stream.title || stream.infoHash);
+    console.log(
+      "Verified passthrough selection:",
+      stream.title || stream.infoHash,
+      `(${Date.now() - requestStartedAt}ms total)`
+    );
     return [presentTorrentStream(stream)];
   }
 
   const directVerification = await selectFirstPlayableHttp(directCandidates);
-  if (directVerification.stream) {
+  if (
+    directVerification.stream &&
+    isStremioWebReadyDirect(directVerification.stream)
+  ) {
+    if (!settingsOverride) {
+      verifiedDirectWinners.set(selectionKey, {
+        stream: directVerification.stream,
+        expiresAt: Date.now() + verifiedDirectWinnerTtlMs
+      });
+    }
     return [presentDirectStream(directVerification.stream)];
   }
   if (!torrentCandidates.length) {
@@ -333,7 +415,7 @@ export async function getStreams(
     );
 
     for (const attempt of fallback.attempts) {
-      if (attempt.reason !== "cancelled after another candidate succeeded") {
+      if (attempt.reason !== "probe cancelled after a winner or request deadline") {
         recordStreamOutcome(attempt.infoHash, attempt.success);
       }
     }

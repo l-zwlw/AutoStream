@@ -530,7 +530,7 @@
 
               <div class="field">
                 <label for="fallbackTimeout">Seconds per candidate</label>
-                <input class="input" id="fallbackTimeout" type="number" min="8" max="20" step="1" />
+                <input class="input" id="fallbackTimeout" type="number" min="6" max="10" step="1" />
               </div>
 
               <div class="field">
@@ -540,8 +540,15 @@
 
               <div class="field">
                 <label for="fallbackMinimumKb">Video data proof (KB)</label>
-                <input class="input" id="fallbackMinimumKb" type="number" min="256" max="4096" step="256" />
-                <p class="hint">AutoStream proves 0.01% of the selected video file, with a minimum of 256 KB and a maximum of 4 MB. Speed is never scored.</p>
+                <input class="input" id="fallbackMinimumKb" type="number" min="64" max="4096" step="64" />
+                <p class="hint">AutoStream proves continuing data from the exact video-file start: 0.01% of the file, with a minimum of 64 KB and a maximum of 4 MB. Speed is never scored.</p>
+              </div>
+              <div class="toggle-row">
+                <div>
+                  <label for="publicMetadataCache">Public torrent metadata cache</label>
+                  <p class="hint">Speeds up cold starts by resolving the info hash through public torrent caches. Disable this if you do not want hashes sent to those services.</p>
+                </div>
+                <input id="publicMetadataCache" type="checkbox" />
               </div>
             </div>
 
@@ -723,7 +730,7 @@
 
     let addons = [];
     let settings = {
-      fallback: { enabled: true, candidateTimeoutSeconds: 18, maximumCandidates: 12, minimumDownloadedKb: 256 },
+      fallback: { enabled: true, candidateTimeoutSeconds: 9, maximumCandidates: 12, minimumDownloadedKb: 64, publicMetadataCache: true },
       midstream: { enabled: false, prebufferMb: 32, stallTimeoutSeconds: 30, segmentSeconds: 4, retentionHours: 12 },
       debrid: { enabled: false, provider: '', apiKey: '' }
     };
@@ -821,9 +828,10 @@
       document.getElementById('debridProvider').value = settings.debrid?.provider || '';
       document.getElementById('debridApiKey').value = settings.debrid?.apiKey || '';
       document.getElementById('fallbackEnabled').checked = settings.fallback?.enabled !== false;
-      document.getElementById('fallbackTimeout').value = Math.max(settings.fallback?.candidateTimeoutSeconds || 18, 8);
+      document.getElementById('fallbackTimeout').value = Math.min(Math.max(settings.fallback?.candidateTimeoutSeconds || 9, 6), 10);
       document.getElementById('fallbackCandidates').value = Math.max(settings.fallback?.maximumCandidates || 12, 10);
-      document.getElementById('fallbackMinimumKb').value = Math.max(settings.fallback?.minimumDownloadedKb || 256, 256);
+      document.getElementById('fallbackMinimumKb').value = Math.max(settings.fallback?.minimumDownloadedKb || 64, 64);
+      document.getElementById('publicMetadataCache').checked = settings.fallback?.publicMetadataCache !== false;
       document.getElementById('playbackMethod').value = settings.playbackMethod || 'torrent';
       document.getElementById('midstreamPrebuffer').value = settings.midstream?.prebufferMb || 32;
       document.getElementById('midstreamStallTimeout').value = settings.midstream?.stallTimeoutSeconds || 30;
@@ -884,7 +892,8 @@
           enabled: document.getElementById('fallbackEnabled').checked,
           candidateTimeoutSeconds: Number(document.getElementById('fallbackTimeout').value),
           maximumCandidates: Number(document.getElementById('fallbackCandidates').value),
-          minimumDownloadedKb: Number(document.getElementById('fallbackMinimumKb').value)
+          minimumDownloadedKb: Number(document.getElementById('fallbackMinimumKb').value),
+          publicMetadataCache: document.getElementById('publicMetadataCache').checked
         },
         midstream: {
           enabled: document.getElementById('playbackMethod').value === 'http',

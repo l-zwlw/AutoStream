@@ -61,7 +61,7 @@ class PrepareRequest(BaseModel):
 
 class ProbeRequest(PrepareRequest):
     timeoutMs: int = Field(default=9000, ge=1000, le=30000)
-    minimumDownloadedKb: int = Field(default=256, ge=256, le=16384)
+    minimumDownloadedKb: int = Field(default=64, ge=64, le=16384)
 
 
 class EngineTorrent:
@@ -163,6 +163,9 @@ def prepare(request: PrepareRequest):
             try:
                 decoded = base64.b64decode(request.torrentData)
                 info = lt.torrent_info(lt.bdecode(decoded))
+                supplied_hash = str(info.info_hashes().v1).lower()
+                if supplied_hash != info_hash:
+                    raise ValueError("Torrent metadata info hash does not match request")
                 supplied_trackers = [
                     source[len("tracker:"):]
                     for source in request.sources
@@ -286,29 +289,80 @@ def probe_range_payload(
         item.handle.set_sequential_download(True)
     except Exception:
         pass
-    baseline = item.handle.status().total_payload_download
     with item.lock:
         for offset, piece in enumerate(range(first_piece, last_piece + 1)):
             item.handle.piece_priority(piece, 7)
             item.handle.set_piece_deadline(piece, offset * 250)
 
     deadline = time.time() + timeout_seconds
+    target_pieces = set(range(first_piece, last_piece + 1))
     last_payload = 0
+
+    def requested_piece_payload():
+        """Count bytes only from blocks belonging to the requested file range."""
+        progress = 0
+        try:
+            queue = item.handle.get_download_queue()
+        except Exception:
+            queue = []
+        for partial in queue:
+            piece_index = getattr(partial, "piece_index", None)
+            if piece_index is None and isinstance(partial, dict):
+                piece_index = partial.get("piece_index")
+            if piece_index not in target_pieces:
+                continue
+            if item.handle.have_piece(piece_index):
+                continue
+            blocks = getattr(partial, "blocks", None)
+            if blocks is None and isinstance(partial, dict):
+                blocks = partial.get("blocks", [])
+            for block in blocks or []:
+                block_progress = getattr(block, "bytes_progress", None)
+                if block_progress is None and isinstance(block, dict):
+                    block_progress = block.get("bytes_progress", 0)
+                progress += max(0, int(block_progress or 0))
+
+        # Completed pieces disappear from the partial download queue. Count
+        # them as verified requested data instead of losing their progress.
+        for piece in target_pieces:
+            if item.handle.have_piece(piece):
+                progress += piece_size
+        return progress
+
+    first_progress_at = None
+    first_progress_bytes = 0
+    grew_after_first_sample = False
     while time.time() < deadline:
         status = item.handle.status()
         if status.errc.value() != 0:
             raise RuntimeError(status.errc.message())
-        last_payload = max(
-            0, status.total_payload_download - baseline
+        last_payload = requested_piece_payload()
+        fully_verified = all(
+            item.handle.have_piece(piece)
+            for piece in range(first_piece, last_piece + 1)
         )
-        if last_payload >= required_bytes:
-            return last_payload, all(
-                item.handle.have_piece(piece)
-                for piece in range(first_piece, last_piece + 1)
-            )
+        if last_payload > 0 and first_progress_at is None:
+            first_progress_at = time.time()
+            first_progress_bytes = last_payload
+        elif last_payload >= first_progress_bytes + 16 * 1024:
+            grew_after_first_sample = True
+
+        # A completed, hash-verified piece is definitive. Partial blocks are
+        # also useful proof, but only after the exact requested piece keeps
+        # progressing over separate observations. One short burst followed by
+        # a stall can no longer win the race.
+        sustained = (
+            first_progress_at is not None
+            and time.time() - first_progress_at >= 0.75
+            and grew_after_first_sample
+        )
+        if last_payload >= required_bytes and (fully_verified or sustained):
+            return last_payload, fully_verified, sustained
         time.sleep(0.1)
-    raise TimeoutError(
-        f"Requested start data timed out ({last_payload}/{required_bytes} bytes)"
+    return last_payload, False, (
+        first_progress_at is not None
+        and time.time() - first_progress_at >= 0.75
+        and grew_after_first_sample
     )
 
 
@@ -317,7 +371,7 @@ def proof_bytes(file_size: int, minimum_kb: int) -> int:
     return min(
         file_size,
         4 * 1024 * 1024,
-        max(256 * 1024, minimum_kb * 1024, proportional),
+        max(64 * 1024, minimum_kb * 1024, proportional),
     )
 
 
@@ -334,13 +388,17 @@ def probe(request: ProbeRequest):
         item = torrents[engine_id]
         required = proof_bytes(item.file_size, request.minimumDownloadedKb)
         remaining = max(0.1, request.timeoutMs / 1000 - (time.time() - started))
-        received, fully_verified = probe_range_payload(
+        received, fully_verified, sustained = probe_range_payload(
             item, 0, required - 1, required, remaining
         )
 
         return {
-            "success": True,
+            "success": bool(
+                received >= required and (fully_verified or sustained)
+            ),
             "bytes": received,
+            "requiredBytes": required,
+            "sustainedProgress": sustained,
             "fullyVerifiedPieces": fully_verified,
             "fileIdx": item.file_index,
             "fileName": item.torrent_info.files().file_path(item.file_index),

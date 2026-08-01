@@ -66,7 +66,7 @@ export async function probeEngineTorrent(
         ...candidate,
         timeoutMs,
         minimumDownloadedKb: Math.max(
-          256,
+          64,
           Math.ceil(requiredBytes(0) / 1024)
         )
       }),
@@ -79,28 +79,32 @@ export async function probeEngineTorrent(
     const result = await response.json() as {
       success: boolean;
       bytes: number;
+      requiredBytes: number;
       elapsedMs: number;
       fullyVerifiedPieces: boolean;
+      sustainedProgress: boolean;
     };
 
     return {
-      success: true,
+      success: result.success,
       reason:
-        `stream engine received ${result.bytes} requested start bytes ` +
+        `stream engine received ${result.bytes}/${result.requiredBytes} exact file-start bytes ` +
         `${result.fullyVerifiedPieces ? "(piece verified)" : "(active payload)"} ` +
         `in ${(result.elapsedMs / 1000).toFixed(1)} seconds`,
-      bytes: result.bytes
+      bytes: result.bytes,
+      sustainedProgress: result.sustainedProgress
     };
   } catch (error) {
     return {
       success: false,
       reason:
         signal?.aborted
-          ? "cancelled after another candidate succeeded"
+          ? "probe cancelled after a winner or request deadline"
           : error instanceof Error
             ? error.message
             : "stream engine probe failed",
-      bytes: 0
+      bytes: 0,
+      sustainedProgress: false
     };
   }
 }

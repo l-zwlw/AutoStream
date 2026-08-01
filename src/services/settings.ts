@@ -34,11 +34,12 @@ const defaultSettings = {
     preferredCodec: "automatic"
   },
   fallback: {
-    verificationVersion: 11,
+    verificationVersion: 13,
     enabled: true,
-    candidateTimeoutSeconds: 18,
+    candidateTimeoutSeconds: 9,
     maximumCandidates: 12,
-    minimumDownloadedKb: 256
+    minimumDownloadedKb: 64,
+    publicMetadataCache: true
   },
   midstream: {
     enabled: false,
@@ -114,18 +115,18 @@ export function normalizeSettings(settings: any) {
       minimumSeeders: clamp(currentSettings.rules?.minimumSeeders, 0, 10000, 0)
     },
     fallback: {
-      verificationVersion: 11,
+      verificationVersion: 13,
       enabled: currentSettings.fallback?.enabled !== false,
       candidateTimeoutSeconds: clamp(
-        currentSettings.fallback?.verificationVersion === 11
+        currentSettings.fallback?.verificationVersion === 13
           ? currentSettings.fallback?.candidateTimeoutSeconds
           : defaultSettings.fallback.candidateTimeoutSeconds,
-        8,
-        20,
+        6,
+        10,
         defaultSettings.fallback.candidateTimeoutSeconds
       ),
       maximumCandidates: clamp(
-        currentSettings.fallback?.verificationVersion === 11
+        currentSettings.fallback?.verificationVersion === 13
           ? currentSettings.fallback?.maximumCandidates
           : defaultSettings.fallback.maximumCandidates,
         10,
@@ -133,13 +134,14 @@ export function normalizeSettings(settings: any) {
         defaultSettings.fallback.maximumCandidates
       ),
       minimumDownloadedKb: clamp(
-        currentSettings.fallback?.verificationVersion === 11
+        currentSettings.fallback?.verificationVersion === 13
           ? currentSettings.fallback?.minimumDownloadedKb
           : defaultSettings.fallback.minimumDownloadedKb,
-        256,
+        64,
         16384,
         defaultSettings.fallback.minimumDownloadedKb
-      )
+      ),
+      publicMetadataCache: currentSettings.fallback?.publicMetadataCache !== false
     },
     midstream: {
       enabled: currentSettings.midstream?.enabled === true,
@@ -227,7 +229,7 @@ export function getSettings() {
   const settings = JSON.parse(fs.readFileSync(settingsFile, "utf-8"));
 
   const normalized = normalizeSettings(settings);
-  if (settings.fallback?.verificationVersion !== 11) {
+  if (settings.fallback?.verificationVersion !== 13) {
     fs.writeFileSync(settingsFile, JSON.stringify(normalized, null, 2));
   }
   return normalized;

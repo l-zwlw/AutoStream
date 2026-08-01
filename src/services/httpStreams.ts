@@ -6,10 +6,17 @@ type DirectStream = {
   title?: string;
   name?: string;
   behaviorHints?: {
+    filename?: string;
     proxyHeaders?: {
       request?: Record<string, string>;
     };
   };
+};
+
+type HttpProbeResult = {
+  bytes: number;
+  contentType: string;
+  filename?: string;
 };
 
 export type HttpStreamAttempt = {
@@ -101,12 +108,34 @@ function firstPlaylistUri(text: string) {
     .find((line) => line && !line.startsWith("#"));
 }
 
+function responseFilename(response: Response, url: URL) {
+  const disposition = response.headers.get("content-disposition") || "";
+  const encoded = disposition.match(/filename\*=(?:UTF-8'')?([^;]+)/i)?.[1];
+  const quoted = disposition.match(/filename="([^"]+)"/i)?.[1];
+  let filename = encoded || quoted;
+  if (filename) {
+    try {
+      filename = decodeURIComponent(filename.replace(/^"|"$/g, ""));
+    } catch {
+      filename = filename.replace(/^"|"$/g, "");
+    }
+  }
+  if (!filename) {
+    const pathname = decodeURIComponent(url.pathname);
+    const finalSegment = pathname.split("/").filter(Boolean).pop();
+    if (finalSegment && /\.(mkv|mp4|avi|mov|m4v|webm|ts|m3u8)$/i.test(finalSegment)) {
+      filename = finalSegment;
+    }
+  }
+  return filename?.split(/[\\/]/).pop();
+}
+
 async function probeUrl(
   stream: DirectStream,
   value: string,
   signal: AbortSignal,
   playlistDepth = 0
-): Promise<number> {
+): Promise<HttpProbeResult> {
   let url = await safeHttpUrl(value);
   for (let redirects = 0; redirects <= 3; redirects += 1) {
     const response = await fetch(url, {
@@ -140,12 +169,17 @@ async function probeUrl(
       if (playlistDepth >= 1 && /\.m3u8(?:$|\?)/i.test(next)) {
         throw new Error("nested HLS playlist is not directly playable");
       }
-      return probeUrl(
+      const nested = await probeUrl(
         stream,
         new URL(next, url).toString(),
         signal,
         playlistDepth + 1
       );
+      return {
+        ...nested,
+        contentType: "application/vnd.apple.mpegurl",
+        filename: responseFilename(response, url) || "autostream.m3u8"
+      };
     }
 
     if (
@@ -158,7 +192,12 @@ async function probeUrl(
     if (bytes.byteLength < 1024) {
       throw new Error(`only ${bytes.byteLength} media bytes returned`);
     }
-    return bytes.byteLength;
+    const filename = responseFilename(response, url);
+    return {
+      bytes: bytes.byteLength,
+      contentType,
+      ...(filename ? { filename } : {})
+    };
   }
   throw new Error("too many redirects");
 }
@@ -172,7 +211,7 @@ export async function verifyHttpStream(
     return { success: false, reason: "stream has no HTTP URL", bytes: 0 };
   }
   try {
-    const bytes = await probeUrl(
+    const probe = await probeUrl(
       stream,
       stream.url,
       signal
@@ -181,8 +220,10 @@ export async function verifyHttpStream(
     );
     return {
       success: true,
-      reason: `HTTP source delivered ${bytes} verified media bytes`,
-      bytes
+      reason: `HTTP source delivered ${probe.bytes} verified media bytes`,
+      bytes: probe.bytes,
+      contentType: probe.contentType,
+      filename: probe.filename
     };
   } catch (error) {
     return {
@@ -223,7 +264,13 @@ export async function selectFirstPlayableHttp<T extends DirectStream>(
     attempts.push(attempt);
     if (result.success) {
       controller.abort();
-      return stream;
+      return {
+        ...stream,
+        behaviorHints: {
+          ...stream.behaviorHints,
+          ...(result.filename ? { filename: result.filename } : {})
+        }
+      } as T;
     }
     return null;
   });

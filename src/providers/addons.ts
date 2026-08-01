@@ -35,7 +35,8 @@ export async function getAddonStreams(
       const url = `${addon.url}/stream/${type}/${id}.json`;
       const cacheKey = `${addon.instanceId}:${type}:${id}`;
 
-      console.log("Loading addon:", url);
+      // Configured addon URLs can contain API keys. Never write them to logs.
+      console.log("Loading addon:", addon.name || addon.instanceId);
 
       const streams = await fetchAddonStreams(url);
 
@@ -105,7 +106,10 @@ export async function getAddonStreams(
   // cache and health data can recover without delaying Stremio.
   await Promise.race([
     Promise.all(tasks),
-    firstUseful.then(() => new Promise((resolve) => setTimeout(resolve, 300)))
+    // Give direct HTTP providers enough time to join a fast torrent provider.
+    // Their streams are tested in parallel afterwards, so this small merge
+    // window prevents Torrentio from hiding every slightly slower addon.
+    firstUseful.then(() => new Promise((resolve) => setTimeout(resolve, 900)))
   ]);
 
   return settledResults.flat();

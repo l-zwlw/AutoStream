@@ -181,6 +181,10 @@ app.get("/p/:profileId/manifest.json", (req, res) => {
 });
 
 app.get("/stream/:type/:id.json", async (req, res) => {
+  // Selection results are live health checks. A previously empty response or
+  // temporary HTTP URL must never survive in Stremio's persistent cache.
+  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+  res.setHeader("Pragma", "no-cache");
   try {
     const streams = await getStreams(
       req.params.type,
@@ -196,6 +200,8 @@ app.get("/stream/:type/:id.json", async (req, res) => {
 });
 
 app.get("/p/:profileId/stream/:type/:id.json", async (req, res) => {
+  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+  res.setHeader("Pragma", "no-cache");
   try {
     const baseUrl = `${req.protocol}://${req.get("host")}`;
     const streams = await getStreams(

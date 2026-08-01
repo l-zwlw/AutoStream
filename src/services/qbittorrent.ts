@@ -2,6 +2,7 @@ import {
   getStreamEngineStatus,
   probeEngineTorrent
 } from "./streamEngine";
+import { resolveTorrentMetadata } from "./torrentMetadata";
 
 const qbittorrentUrl = (
   process.env.QBITTORRENT_URL || "http://localhost:7002"
@@ -39,6 +40,7 @@ export type TorrentCandidate = {
   fileIdx?: number;
   sources?: string[];
   title?: string;
+  torrentData?: string;
 };
 
 type TorrentInfo = {
@@ -89,6 +91,8 @@ export interface FallbackAttempt {
   title: string;
   success: boolean;
   reason: string;
+  bytes?: number;
+  sustainedProgress?: boolean;
 }
 
 export interface FallbackSelection {
@@ -112,7 +116,7 @@ export function requiredVideoProofBytes(
 
   return Math.min(
     4 * 1024 * 1024,
-    Math.max(256 * 1024, configuredMinimumBytes, proportionalBytes)
+    Math.max(64 * 1024, configuredMinimumBytes, proportionalBytes)
   );
 }
 
@@ -158,17 +162,22 @@ export function verificationCandidateOrder<T extends TorrentCandidate>(
   for (const [quality, bucket] of buckets) {
     // Jackett represents the user's own indexers and may expose healthy swarms
     // that public addons rank poorly or do not list at all. Give those results
-    // the first verification slots within the same quality, while preserving
-    // the statistical order inside both source groups. Measurement still
-    // decides the winner, so an unhealthy Jackett result never wins blindly.
-    buckets.set(quality, [
-      ...bucket.filter(
-        (candidate: any) => candidate._autostreamAddonId === "jackett"
-      ),
-      ...bucket.filter(
-        (candidate: any) => candidate._autostreamAddonId !== "jackett"
-      )
-    ]);
+    // the first verification slot within the same quality. Do not move every
+    // Jackett result ahead of globally stronger addon results: one preferred
+    // Jackett candidate is enough to give the user's indexers a fair chance.
+    // Measured requested-file data still decides the winner.
+    const preferredJackett = bucket.find(
+      (candidate: any) => candidate._autostreamAddonId === "jackett"
+    );
+    buckets.set(
+      quality,
+      preferredJackett
+        ? [
+            preferredJackett,
+            ...bucket.filter((candidate) => candidate !== preferredJackett)
+          ]
+        : bucket
+    );
   }
   const ordered: T[] = [];
   const practicalBuckets = [buckets.get("1080p")!, buckets.get("720p")!];
@@ -232,22 +241,24 @@ export type FallbackOptions = {
   candidateTimeoutSeconds?: number;
   maximumCandidates?: number;
   minimumDownloadedKb?: number;
+  publicMetadataCache?: boolean;
 };
 
 function normalizeFallbackOptions(options: FallbackOptions = {}) {
   return {
     candidateTimeoutMs: Math.min(
-      Math.max(Number(options.candidateTimeoutSeconds || 18), 8),
-      20
+      Math.max(Number(options.candidateTimeoutSeconds || 9), 6),
+      10
     ) * 1000,
     maximumCandidates: Math.min(
       Math.max(Number(options.maximumCandidates || 10), 10),
       20
     ),
     minimumDownloadedBytes: Math.min(
-      Math.max(Number(options.minimumDownloadedKb || 256), 256),
+      Math.max(Number(options.minimumDownloadedKb || 64), 64),
       16384
-    ) * 1024
+    ) * 1024,
+    publicMetadataCache: options.publicMetadataCache !== false
   };
 }
 
@@ -366,7 +377,7 @@ async function getCandidateTorrentMetadata(
     }
     throw new Error(
       signal?.aborted
-        ? "cancelled after another candidate succeeded"
+        ? "probe cancelled after a winner or request deadline"
         : "torrent metadata did not arrive in time"
     );
   } finally {
@@ -815,7 +826,7 @@ async function testCandidate(
     return {
       success: false,
       reason: signal?.aborted
-        ? "cancelled after another candidate succeeded"
+        ? "probe cancelled after a winner or request deadline"
         : `no usable data within ${options.candidateTimeoutMs / 1000} seconds ` +
           `(contiguous start ${lastContiguousBytes}/${lastRequiredProofBytes} ` +
           `bytes, seeds ${lastSeeds})`,
@@ -871,54 +882,117 @@ export async function selectFirstPlayableTorrent(
     attempt: FallbackAttempt;
   };
   const attempts: FallbackAttempt[] = [];
+  const partialCandidates: TestedCandidate[] = [];
 
   // Test exactly one torrent per quality in each round. Only when every
   // quality in that round fails do we advance to the next candidates. A fast
   // verified winner returns immediately; old swarms may use the full round.
+  // Stremio should never wait through several full timeout rounds. Later
+  // waves may use whatever remains, but the complete selection is capped at
+  // ten seconds.
   const selectionDeadline =
-    Date.now() + Math.min(30_000, options.candidateTimeoutMs * 2);
+    Date.now() + Math.min(10_000, options.candidateTimeoutMs);
   const streamEngine = await getStreamEngineStatus();
-  const waves = new Map<number, TorrentCandidate[]>();
-  for (const { candidate, wave } of candidatePlan) {
-    const candidates = waves.get(wave) || [];
-    candidates.push(candidate);
-    waves.set(wave, candidates);
-  }
+  const probeController = new AbortController();
+  const probeSignal = externalSignal
+    ? AbortSignal.any([externalSignal, probeController.signal])
+    : probeController.signal;
 
-  for (const waveCandidates of waves.values()) {
-    if (Date.now() >= selectionDeadline || externalSignal?.aborted) break;
-    const probeController = new AbortController();
-    const probeSignal = externalSignal
-      ? AbortSignal.any([externalSignal, probeController.signal])
-      : probeController.signal;
-    const waveDeadline = Math.min(
-      selectionDeadline,
-      Date.now() + options.candidateTimeoutMs
-    );
-    const tasks = waveCandidates.map(async (candidate) => {
+  // Each wave contains one candidate per quality. Later waves are staggered
+  // instead of waiting for an entire failed timeout. This preserves a short
+  // head start for the statistically strongest candidates, while allowing a
+  // genuinely working second option to win within the same ten-second user
+  // request. Actual requested-file bytes remain the only success criterion.
+  const waveStaggerMs = 2_500;
+  const schedulingStartedAt = Date.now();
+  const schedulablePlan = candidatePlan.filter(
+    ({ wave }) =>
+      schedulingStartedAt + wave * waveStaggerMs < selectionDeadline
+  );
+  const tasks = schedulablePlan.map(async ({ candidate, wave }) => {
+      if (wave > 0) await delay(wave * waveStaggerMs);
+      if (Date.now() >= selectionDeadline || probeSignal.aborted) {
+        return null;
+      }
+      const candidateDeadline = Math.min(
+        selectionDeadline,
+        Date.now() + options.candidateTimeoutMs
+      );
       const infoHash = candidate.infoHash!.toLowerCase();
       let tested: TestedCandidate;
       try {
-        const result = streamEngine.online
-          ? await testCandidateWithStreamEngine(
-              candidate,
-              options,
-              waveDeadline,
-              probeSignal
-            )
-          : await testCandidate(
-              candidate,
-              options,
-              waveDeadline,
-              probeSignal
-            );
+        // The isolated libtorrent engine is quickest on many swarms, while
+        // qBittorrent sometimes discovers metadata that the isolated DHT
+        // session misses. Probe both backends at once and accept only the
+        // first backend that proves requested-file data. This is redundancy,
+        // not a speed score.
+        const engineProbe = async () => {
+          const torrentData = await resolveTorrentMetadata(
+            infoHash,
+            options.publicMetadataCache,
+            probeSignal
+          );
+          return testCandidateWithStreamEngine(
+            torrentData ? { ...candidate, torrentData } : candidate,
+            options,
+            candidateDeadline,
+            probeSignal
+          );
+        };
+        const probes = streamEngine.online
+          ? [
+              engineProbe(),
+              testCandidate(
+                candidate,
+                options,
+                candidateDeadline,
+                probeSignal
+              )
+            ]
+          : [testCandidate(candidate, options, candidateDeadline, probeSignal)];
+        const outcomes: Array<{
+          success: boolean;
+          reason: string;
+          bytes?: number;
+          sustainedProgress?: boolean;
+        }> = [];
+        let result;
+        try {
+          result = await Promise.any(
+            probes.map(async (probe) => {
+            const outcome = await probe;
+            outcomes.push(outcome);
+            if (!outcome.success) throw new Error(outcome.reason);
+            return outcome;
+            })
+          );
+        } catch {
+          result = outcomes.sort(
+            (a, b) => Number(b.bytes || 0) - Number(a.bytes || 0)
+          )[0] || {
+            success: false,
+            reason: "no verifier received requested-file data",
+            bytes: 0,
+            sustainedProgress: false
+          };
+        }
+        const resultBytes = "bytes" in result
+          ? Number(result.bytes || 0)
+          : "contiguousBytes" in result
+            ? Number(result.contiguousBytes || 0)
+            : 0;
+        const sustainedProgress = "sustainedProgress" in result
+          ? result.sustainedProgress === true
+          : result.success;
         tested = {
           candidate,
           attempt: {
             infoHash,
             title: candidate.title || infoHash,
             success: result.success,
-            reason: result.reason
+            reason: result.reason,
+            bytes: resultBytes,
+            sustainedProgress
           }
         };
       } catch (error) {
@@ -940,22 +1014,44 @@ export async function selectFirstPlayableTorrent(
         `(${tested.attempt.reason})`
       );
       attempts.push(tested.attempt);
+      if (
+        !tested.attempt.success &&
+        tested.attempt.sustainedProgress === true &&
+        Number(tested.attempt.bytes || 0) >= 16 * 1024
+      ) {
+        partialCandidates.push(tested);
+      }
       return tested.attempt.success ? tested : null;
     });
 
-    const winner = await Promise.any(
-      tasks.map(async (task) => {
-        const tested = await task;
-        if (!tested) throw new Error("candidate failed");
-        return tested;
-      })
-    ).catch(() => null);
-    if (winner) {
-      probeController.abort();
-      void Promise.allSettled(tasks);
-      return { stream: winner.candidate, attempts };
-    }
-    await Promise.allSettled(tasks);
+  const winnerPromise = Promise.any(
+    tasks.map(async (task) => {
+      const tested = await task;
+      if (!tested) throw new Error("candidate failed");
+      return tested;
+    })
+  ).catch(() => null);
+  const winner = await Promise.race([
+    winnerPromise,
+    delay(Math.max(0, selectionDeadline - Date.now())).then(() => null)
+  ]);
+  if (winner) {
+    probeController.abort();
+    void Promise.allSettled(tasks);
+    return { stream: winner.candidate, attempts };
+  }
+  // A slow cleanup/API call must not hold Stremio beyond the user-facing
+  // deadline. The probes still clean up safely in the background.
+  probeController.abort();
+  void Promise.allSettled(tasks);
+
+  const partialWinner = partialCandidates.sort(
+    (a, b) => Number(b.attempt.bytes || 0) - Number(a.attempt.bytes || 0)
+  )[0];
+  if (partialWinner) {
+    partialWinner.attempt.success = true;
+    partialWinner.attempt.reason += " (best sustained exact-file fallback)";
+    return { stream: partialWinner.candidate, attempts };
   }
 
   return { stream: null, attempts };

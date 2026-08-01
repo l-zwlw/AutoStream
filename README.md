@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version" src="https://img.shields.io/badge/stable-1.3.3-4dff9f" />
+  <img alt="Version" src="https://img.shields.io/badge/stable-1.3.4-4dff9f" />
   <img alt="Docker" src="https://img.shields.io/badge/Docker-GHCR-2496ed" />
   <img alt="License" src="https://img.shields.io/badge/license-MIT-4dff9f" />
 </p>
@@ -25,8 +25,15 @@ The optional startup check verifies the exact requested movie or episode.
 AutoStream tests one candidate per allowed quality at the same time, restricts
 every torrent to the requested video file, and returns the first candidate
 whose requested start pieces deliver real payload. The proof threshold is
-0.01% of the video file, bounded between 256 KB and 4 MB. AutoStream never
+0.01% of the exact video-file start, bounded between 64 KB and 4 MB. The
+requested blocks must keep progressing across separate observations; one burst
+followed by a stall is rejected. AutoStream never
 substitutes an unmeasured statistical guess when verification is enabled.
+
+For faster cold starts, public torrent metadata caches are enabled by default.
+Only the torrent info hash is sent to those services, and returned metadata is
+cryptographically checked against that hash before use. This can be disabled
+in Settings.
 
 Direct HTTP and HLS results from configured addons are supported too. Before
 one is shown in Stremio, AutoStream follows only validated public redirects,
@@ -179,9 +186,9 @@ torrent wins. Optional debrid-aware selection is configured separately.
 ## Fallback settings
 
 - **Automatic startup fallback:** enable or disable qBittorrent candidate testing
-- **Seconds per candidate:** 8–20 seconds (18 by default)
+- **Seconds per candidate:** 6–10 seconds (9 by default)
 - **Maximum candidates:** 10–20 candidates
-- **Minimum verified download:** 256–16384 KB
+- **Minimum verified download:** 64–16384 KB
 
 Each round contains at most one candidate for every allowed quality. A healthy
 torrent wins as soon as its exact video file delivers the required requested

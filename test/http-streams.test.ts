@@ -42,6 +42,25 @@ test("accepts a direct HTTP source only after media bytes arrive", async () => {
   });
 });
 
+test("preserves a video filename discovered from an attachment response", async () => {
+  await testServer((_request, response) => {
+    response.writeHead(206, {
+      "Content-Type": "application/octet-stream",
+      "Content-Disposition": "attachment; filename*=UTF-8''Silo.S01E01.mkv",
+      "Content-Range": "bytes 0-65535/1000000"
+    });
+    response.end(Buffer.alloc(64 * 1024, 1));
+  }, async (baseUrl) => {
+    const selection = await selectFirstPlayableHttp([
+      { url: `${baseUrl}/opaque-download`, title: "Silo" }
+    ]);
+    assert.equal(
+      selection.stream?.behaviorHints?.filename,
+      "Silo.S01E01.mkv"
+    );
+  });
+});
+
 test("rejects HTTP 200 webpages masquerading as streams", async () => {
   await testServer((_request, response) => {
     response.writeHead(200, { "Content-Type": "text/html" });

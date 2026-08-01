@@ -3,7 +3,11 @@ import test from "node:test";
 
 import { deduplicateStreams } from "../src/services/dedupe";
 import { rankStreams } from "../src/services/sorter";
-import { verifiedSelectionKey } from "../src/streams";
+import {
+  isStremioWebReadyDirect,
+  presentDirectStream,
+  verifiedSelectionKey
+} from "../src/streams";
 import {
   contiguousReadyBytes,
   oneCandidatePerQuality,
@@ -20,6 +24,34 @@ test("deduplicates the same torrent and file index", () => {
     { infoHash: "a".repeat(40), fileIdx: 3, title: "different episode" }
   ];
   assert.equal(deduplicateStreams(streams).length, 2);
+});
+
+test("marks HTTP MKV files for Stremio's native streaming server", () => {
+  const mkv = presentDirectStream({
+    url: "https://example.test/video",
+    behaviorHints: { filename: "Episode.S01E01.mkv" }
+  });
+  const mp4 = presentDirectStream({
+    url: "https://example.test/video.mp4",
+    behaviorHints: { filename: "Episode.S01E01.mp4" }
+  });
+
+  assert.equal(mkv.behaviorHints.notWebReady, true);
+  assert.equal(mp4.behaviorHints.notWebReady, undefined);
+  assert.equal(
+    isStremioWebReadyDirect({
+      url: "https://example.test/video",
+      behaviorHints: { filename: "Episode.S01E01.mkv" }
+    }),
+    false
+  );
+  assert.equal(
+    isStremioWebReadyDirect({
+      url: "https://example.test/video.mp4",
+      behaviorHints: { filename: "Episode.S01E01.mp4" }
+    }),
+    true
+  );
 });
 
 test("filters streams that exceed device capabilities", () => {
@@ -273,11 +305,11 @@ test("verification schedules the next candidate in each quality as a later wave"
   );
 });
 
-test("video proof is 0.01 percent with a 256 KB floor and 4 MB cap", () => {
-  const configured = 256 * 1024;
+test("video proof is 0.01 percent with a 64 KB floor and 4 MB cap", () => {
+  const configured = 64 * 1024;
   assert.equal(
     requiredVideoProofBytes(800 * 1024 * 1024, configured),
-    configured
+    Math.ceil(800 * 1024 * 1024 * 0.0001)
   );
   assert.equal(
     requiredVideoProofBytes(30 * 1024 * 1024 * 1024, configured),

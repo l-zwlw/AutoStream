@@ -457,6 +457,11 @@
               <div class="stat-note" id="jackettNote">Optional tracker search is off.</div>
             </div>
             <div class="card stat">
+              <div class="stat-label">Plex source</div>
+              <div class="stat-value" id="plexValue">Not connected</div>
+              <div class="stat-note" id="plexNote">Connect Plexio to prefer your Plex library.</div>
+            </div>
+            <div class="card stat">
               <div class="stat-label">Browser player</div>
               <div class="stat-value" id="browserPlayerValue">Checking</div>
               <div class="stat-note" id="browserPlayerNote">Connecting to Stremio Web.</div>
@@ -717,6 +722,24 @@
     </div>
   </div>
 
+  <div class="modal-backdrop" id="plexModalBackdrop">
+    <div class="card card-pad modal">
+      <h2>Connect Plex</h2>
+      <p>AutoStream connects through a configured Plexio manifest. Plexio handles secure Plex login and exact IMDb/episode matching; AutoStream verifies the returned media and always prefers it over torrents.</p>
+      <div class="field">
+        <label for="plexManifestUrl">Configured Plexio manifest URL</label>
+        <input class="input" id="plexManifestUrl" type="password" placeholder="https://your-plexio.example/.../manifest.json" autocomplete="off" />
+        <p class="hint">Configure Plexio first, then paste its private install URL here. The URL contains access credentials and is never displayed again or included in backups.</p>
+      </div>
+      <div class="modal-actions">
+        <a class="btn" href="https://github.com/vanchaxy/plexio" target="_blank" rel="noreferrer">Plexio setup</a>
+        <button class="btn btn-danger" id="disconnectPlexBtn">Disconnect</button>
+        <button class="btn" id="cancelPlexBtn">Cancel</button>
+        <button class="btn btn-primary" id="savePlexBtn">Connect</button>
+      </div>
+    </div>
+  </div>
+
   <div class="toast-wrap" id="toastWrap"></div>
 
   <script>
@@ -806,6 +829,13 @@
           : jackett.online
             ? 'Jackett is connected.'
             : jackett.error || 'Add indexers and an API key.';
+        const plex = data.plex || {};
+        document.getElementById('plexValue').textContent = !plex.configured ? 'Not connected' : plex.enabled ? 'Ready' : 'Disabled';
+        document.getElementById('plexNote').textContent = !plex.configured
+          ? 'Connect a configured Plexio manifest.'
+          : plex.enabled
+            ? 'Playable Plex media is preferred over torrents.'
+            : 'The connected Plex source is disabled.';
         const browserPlayer = data.browserPlayer || {};
         document.getElementById('browserPlayerValue').textContent = !browserPlayer.configured
           ? 'Not configured'
@@ -1083,13 +1113,38 @@
       const grid = document.getElementById('addonGrid');
       const empty = document.getElementById('addonEmpty');
       const query = document.getElementById('addonSearch')?.value.toLowerCase() || '';
-      const filtered = addons.filter(addon => {
-        return `${addon.name || ''} ${addon.description || ''} ${addon.url || ''}`.toLowerCase().includes(query);
-      });
+      const filtered = addons.filter(addon =>
+        addon.sourceKind !== 'plex' &&
+        `${addon.name || ''} ${addon.description || ''} ${addon.url || ''}`.toLowerCase().includes(query)
+      );
       const showJackett = `jackett built-in torrent source`.includes(query);
+      const showPlex = `plex plexio preferred media source`.includes(query);
+      const plexAddon = addons.find(addon => addon.sourceKind === 'plex');
 
       grid.innerHTML = '';
-      empty.style.display = filtered.length || showJackett ? 'none' : 'block';
+      empty.style.display = filtered.length || showJackett || showPlex ? 'none' : 'block';
+
+      if (showPlex) {
+        const plexCard = document.createElement('div');
+        plexCard.className = 'card addon-card';
+        plexCard.innerHTML = `
+          <div class="addon-head">
+            <div class="addon-logo fallback">P</div>
+            <div style="min-width:0;">
+              <div class="addon-name">Plex</div>
+              <div class="addon-version">Plexio connector</div>
+            </div>
+          </div>
+          <div class="addon-desc">Use matched media from your Plex library before testing any torrent.</div>
+          <div class="addon-url">${plexAddon ? 'Connected securely' : 'Not configured'}</div>
+          <div class="addon-actions">
+            <span class="toggle ${plexAddon?.enabled !== false && plexAddon ? 'on' : ''}">${plexAddon ? (plexAddon.enabled !== false ? 'Enabled' : 'Disabled') : 'Disconnected'}</span>
+            <button class="btn btn-small" id="configurePlexBtn">Configure</button>
+          </div>
+        `;
+        grid.appendChild(plexCard);
+        plexCard.querySelector('#configurePlexBtn').addEventListener('click', openPlexModal);
+      }
 
       if (showJackett) {
         const jackettCard = document.createElement('div');
@@ -1193,6 +1248,29 @@
     function closeModal() { document.getElementById('modalBackdrop').classList.remove('open'); }
     function openJackettModal() { document.getElementById('jackettModalBackdrop').classList.add('open'); }
     function closeJackettModal() { document.getElementById('jackettModalBackdrop').classList.remove('open'); }
+    function openPlexModal() { document.getElementById('plexModalBackdrop').classList.add('open'); document.getElementById('plexManifestUrl').value = ''; }
+    function closePlexModal() { document.getElementById('plexModalBackdrop').classList.remove('open'); }
+
+    async function savePlex() {
+      const url = document.getElementById('plexManifestUrl').value.trim();
+      if (!url) return toast('Missing URL', 'Paste your configured Plexio manifest URL.');
+      const response = await fetch('/api/plex', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url })
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) return toast('Plex not connected', data.error || 'Could not validate Plexio.');
+      closePlexModal();
+      await Promise.all([loadAddons(), loadStatus()]);
+      toast('Plex connected', 'Playable Plex media now takes priority over torrents.');
+    }
+
+    async function disconnectPlex() {
+      const response = await fetch('/api/plex', { method: 'DELETE' });
+      if (!response.ok) return toast('Error', 'Could not disconnect Plex.');
+      closePlexModal();
+      await Promise.all([loadAddons(), loadStatus()]);
+      toast('Plex disconnected', 'Torrent and HTTP addon selection remains available.');
+    }
 
     function goTo(page) {
       document.querySelectorAll('.page').forEach(el => el.classList.toggle('active', el.id === page));
@@ -1224,6 +1302,10 @@
     document.getElementById('modalBackdrop').addEventListener('click', e => { if (e.target.id === 'modalBackdrop') closeModal(); });
     document.getElementById('cancelJackettBtn').addEventListener('click', closeJackettModal);
     document.getElementById('jackettModalBackdrop').addEventListener('click', e => { if (e.target.id === 'jackettModalBackdrop') closeJackettModal(); });
+    document.getElementById('cancelPlexBtn').addEventListener('click', closePlexModal);
+    document.getElementById('plexModalBackdrop').addEventListener('click', e => { if (e.target.id === 'plexModalBackdrop') closePlexModal(); });
+    document.getElementById('savePlexBtn').addEventListener('click', savePlex);
+    document.getElementById('disconnectPlexBtn').addEventListener('click', disconnectPlex);
     document.getElementById('addAddonBtn').addEventListener('click', addAddon);
     document.getElementById('addonSearch').addEventListener('input', renderAddons);
     document.getElementById('playbackMethod').addEventListener('change', updatePlaybackPanel);

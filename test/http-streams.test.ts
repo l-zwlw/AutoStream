@@ -9,14 +9,16 @@ import {
 
 async function testServer(
   handler: http.RequestListener,
-  run: (baseUrl: string) => Promise<void>
+  run: (baseUrl: string) => Promise<void>,
+  allowPrivate = true
 ) {
   const server = http.createServer(handler);
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const address = server.address();
   assert.ok(address && typeof address === "object");
   const previous = process.env.ALLOW_PRIVATE_HTTP_STREAMS;
-  process.env.ALLOW_PRIVATE_HTTP_STREAMS = "true";
+  if (allowPrivate) process.env.ALLOW_PRIVATE_HTTP_STREAMS = "true";
+  else delete process.env.ALLOW_PRIVATE_HTTP_STREAMS;
   try {
     await run(`http://127.0.0.1:${address.port}`);
   } finally {
@@ -40,6 +42,22 @@ test("accepts a direct HTTP source only after media bytes arrive", async () => {
     assert.equal(result.success, true);
     assert.equal(result.bytes, 64 * 1024);
   });
+});
+
+test("allows a private Plex stream without opening private URLs to other addons", async () => {
+  await testServer((_request, response) => {
+    response.writeHead(206, { "Content-Type": "video/mp4" });
+    response.end(Buffer.alloc(64 * 1024, 3));
+  }, async (baseUrl) => {
+    const ordinary = await verifyHttpStream({ url: `${baseUrl}/movie.mp4` });
+    const plex = await verifyHttpStream({
+      url: `${baseUrl}/movie.mp4`,
+      _autostreamSourceKind: "plex"
+    });
+    assert.equal(ordinary.success, false);
+    assert.match(ordinary.reason, /private|local/);
+    assert.equal(plex.success, true);
+  }, false);
 });
 
 test("preserves a video filename discovered from an attachment response", async () => {

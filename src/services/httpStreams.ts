@@ -11,6 +11,7 @@ type DirectStream = {
       request?: Record<string, string>;
     };
   };
+  _autostreamSourceKind?: string;
 };
 
 type HttpProbeResult = {
@@ -51,12 +52,12 @@ function privateAddress(address: string) {
   );
 }
 
-async function safeHttpUrl(value: string) {
+async function safeHttpUrl(value: string, allowPrivate = false) {
   const url = new URL(value);
   if (!["http:", "https:"].includes(url.protocol)) {
     throw new Error("unsupported stream protocol");
   }
-  if (process.env.ALLOW_PRIVATE_HTTP_STREAMS !== "true") {
+  if (!allowPrivate && process.env.ALLOW_PRIVATE_HTTP_STREAMS !== "true") {
     const addresses = await dns.lookup(url.hostname, { all: true });
     if (!addresses.length || addresses.some(({ address }) => privateAddress(address))) {
       throw new Error("private or local stream address blocked");
@@ -136,7 +137,8 @@ async function probeUrl(
   signal: AbortSignal,
   playlistDepth = 0
 ): Promise<HttpProbeResult> {
-  let url = await safeHttpUrl(value);
+  const allowPrivate = stream._autostreamSourceKind === "plex";
+  let url = await safeHttpUrl(value, allowPrivate);
   for (let redirects = 0; redirects <= 3; redirects += 1) {
     const response = await fetch(url, {
       headers: requestHeaders(stream),
@@ -146,7 +148,7 @@ async function probeUrl(
     if ([301, 302, 303, 307, 308].includes(response.status)) {
       const location = response.headers.get("location");
       if (!location) throw new Error("redirect has no location");
-      url = await safeHttpUrl(new URL(location, url).toString());
+      url = await safeHttpUrl(new URL(location, url).toString(), allowPrivate);
       continue;
     }
     if (!(response.ok || response.status === 206)) {

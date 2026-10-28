@@ -1,9 +1,16 @@
 import fs from "fs";
 import path from "path";
 import crypto from "node:crypto";
+import { dataRoot, writeJsonAtomic } from "./storage";
 
-const dataRoot = process.env.AUTOSTREAM_DATA_PATH || path.join(process.cwd(), "data");
 const addonsFile = path.join(dataRoot, "addons.json");
+
+export function isPlexAddon(addon: any) {
+  return (
+    addon?.sourceKind === "plex" ||
+    String(addon?.id || "").toLowerCase() === "com.stremio.plexio"
+  );
+}
 
 export function getAddons() {
   if (!fs.existsSync(addonsFile)) {
@@ -21,14 +28,20 @@ export function getAddons() {
         .slice(0, 24);
       changed = true;
     }
+    if (
+      !addon.sourceKind &&
+      String(addon.id || "").toLowerCase() === "com.stremio.plexio"
+    ) {
+      addon.sourceKind = "plex";
+      changed = true;
+    }
   }
   if (changed) saveAddons(addons);
   return addons;
 }
 
 export function saveAddons(addons: any[]) {
-  fs.mkdirSync(dataRoot, { recursive: true });
-  fs.writeFileSync(addonsFile, JSON.stringify(addons, null, 2));
+  writeJsonAtomic(addonsFile, addons, 0o600);
 }
 
 export async function createAddon(url: string) {
@@ -38,7 +51,9 @@ export async function createAddon(url: string) {
 
   const baseUrl = manifestUrl.replace(/\/manifest\.json$/, "");
 
-  const response = await fetch(manifestUrl);
+  const response = await fetch(manifestUrl, {
+    signal: AbortSignal.timeout(10_000)
+  });
 
   if (!response.ok) {
     throw new Error("Could not fetch addon manifest");
@@ -55,6 +70,9 @@ export async function createAddon(url: string) {
     logo: manifest.logo || "",
     url: baseUrl,
     manifestUrl,
-    enabled: true
+    enabled: true,
+    ...(String(manifest.id || "").toLowerCase() === "com.stremio.plexio"
+      ? { sourceKind: "plex" }
+      : {})
   };
 }

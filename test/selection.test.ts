@@ -6,7 +6,8 @@ import { rankStreams } from "../src/services/sorter";
 import {
   isStremioWebReadyDirect,
   presentDirectStream,
-  verifiedSelectionKey
+  verifiedSelectionKey,
+  plexDirectCandidates
 } from "../src/streams";
 import {
   contiguousReadyBytes,
@@ -52,6 +53,18 @@ test("marks HTTP MKV files for Stremio's native streaming server", () => {
     }),
     true
   );
+});
+
+test("separates Plex direct media so it can win before torrent verification", () => {
+  const candidates = plexDirectCandidates([
+    { infoHash: "a".repeat(40), title: "Torrent" },
+    { url: "https://plex.example/movie.mp4", _autostreamSourceKind: "plex" },
+    { url: "https://other.example/movie.mp4" }
+  ]);
+  assert.deepEqual(candidates.map((candidate) => candidate.url), [
+    "https://plex.example/movie.mp4"
+  ]);
+  assert.equal(presentDirectStream(candidates[0]).title, "🍿 Plex");
 });
 
 test("filters streams that exceed device capabilities", () => {

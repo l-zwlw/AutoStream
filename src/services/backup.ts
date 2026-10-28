@@ -2,8 +2,8 @@ import fs from "node:fs";
 import path from "node:path";
 
 import { APP_VERSION } from "../version";
+import { dataRoot, writeJsonAtomic } from "./storage";
 
-const dataRoot = path.join(process.cwd(), "data");
 const backupFiles = ["addons.json", "settings.json", "health.json", "cache.json"];
 const restorableFiles = [...backupFiles, "profiles.json"];
 
@@ -22,7 +22,15 @@ export function createBackup() {
   for (const filename of backupFiles) {
     const filePath = path.join(dataRoot, filename);
     if (!fs.existsSync(filePath)) continue;
-    files[filename] = withoutSecrets(JSON.parse(fs.readFileSync(filePath, "utf8")));
+    const value = JSON.parse(fs.readFileSync(filePath, "utf8"));
+    // A configured Plexio manifest embeds the Plex access token. Never place
+    // that private URL in a portable backup file.
+    files[filename] = filename === "addons.json" && Array.isArray(value)
+      ? withoutSecrets(value.filter((addon: any) =>
+          addon?.sourceKind !== "plex" &&
+          String(addon?.id || "").toLowerCase() !== "com.stremio.plexio"
+        ))
+      : withoutSecrets(value);
   }
   return {
     format: "autostream-backup",
@@ -79,10 +87,7 @@ export function restoreBackup(backup: any) {
         }
       }));
     }
-    fs.writeFileSync(
-      path.join(dataRoot, filename),
-      JSON.stringify(restoredValue, null, 2)
-    );
+    writeJsonAtomic(path.join(dataRoot, filename), restoredValue);
     restored.push(filename);
   }
   return restored;

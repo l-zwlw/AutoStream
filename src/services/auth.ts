@@ -1,8 +1,8 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import { dataRoot, writeJsonAtomic } from "./storage";
 
-const dataRoot = process.env.AUTOSTREAM_DATA_PATH || path.join(process.cwd(), "data");
 const authFile = path.join(dataRoot, "auth.json");
 const sessions = new Map<string, number>();
 const attempts = new Map<string, { count: number; blockedUntil: number }>();
@@ -44,11 +44,7 @@ export function setPassword(password: string) {
   }
   const salt = crypto.randomBytes(24).toString("hex");
   ensureAuthDirectory();
-  fs.writeFileSync(
-    authFile,
-    JSON.stringify({ salt, hash: derive(password, salt) }, null, 2),
-    { mode: 0o600 }
-  );
+  writeJsonAtomic(authFile, { salt, hash: derive(password, salt) }, 0o600);
   sessions.clear();
 }
 

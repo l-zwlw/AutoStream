@@ -42,6 +42,16 @@ HLS it also opens the first media segment. Private and loopback stream targets
 are blocked by default to prevent addons from using AutoStream as an SSRF
 proxy.
 
+### Plex priority source
+
+Connect a configured Plexio manifest from **Addons → Plex → Configure**.
+AutoStream waits for Plex first, verifies actual media bytes, and returns the
+Plex stream immediately when the requested movie or episode is available.
+Torrent probing starts only when Plex has no playable exact match. Plexio can
+be self-hosted and handles Plex login, library matching, direct play and
+optional transcoding. AutoStream never displays its private manifest URL after
+saving it and excludes that URL from downloadable backups.
+
 ## Highlights
 
 - One clean result in Stremio
@@ -112,7 +122,12 @@ docker compose up -d
 
 The standard [`docker-compose.yml`](docker-compose.yml) starts AutoStream with
 its qBittorrent and streaming-engine sidecars plus an optional browser player.
-Persistent configuration is stored in local folders next to the Compose file.
+Settings, addon connections, health history and the dashboard password are
+stored in the named Docker volume `autostream-data`. It survives normal
+container recreation, image updates and `docker compose down`. Existing data
+from the older `./data` folder is copied into the volume once without
+overwriting newer volume data. Do not use `docker compose down -v` unless you
+intentionally want to delete the persistent configuration.
 
 After the stack starts, open:
 

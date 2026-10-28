@@ -11,6 +11,7 @@ import { deduplicateStreams } from "./services/dedupe";
 import { recordAddonResult, recordStreamOutcome } from "./services/health";
 import { getJackettStreams } from "./providers/jackett";
 import { selectFirstPlayableHttp } from "./services/httpStreams";
+import { getAddons } from "./services/addons";
 
 const experimentalHttpEnabled =
   process.env.ENABLE_EXPERIMENTAL_HTTP === "true";
@@ -33,8 +34,12 @@ const verifiedTorrentWinners = new Map<
   string,
   { stream: any; expiresAt: number }
 >();
-const verifiedDirectWinnerTtlMs = 60_000;
-const verifiedTorrentWinnerTtlMs = 60_000;
+// A winner has delivered real media bytes, so repeated Stremio requests for
+// the same exact movie/episode can safely reuse it for a few minutes. Source
+// discovery still has its own background refresh and settings/addon changes
+// are part of the cache key.
+const verifiedDirectWinnerTtlMs = 5 * 60_000;
+const verifiedTorrentWinnerTtlMs = 5 * 60_000;
 
 export function verifiedSelectionKey(type: string, id: string, settings: any) {
   const selectionSettings = {
@@ -42,7 +47,11 @@ export function verifiedSelectionKey(type: string, id: string, settings: any) {
     addonPriorities: settings.addonPriorities || {},
     device: settings.device || {},
     rules: settings.rules || {},
-    fallback: settings.fallback || {}
+    fallback: settings.fallback || {},
+    sources: getAddons()
+      .filter((addon: any) => addon.enabled !== false)
+      .map((addon: any) => addon.instanceId)
+      .sort()
   };
 
   // A season pack can behave very differently for each file. Cache only the
@@ -58,6 +67,7 @@ function activeVerificationKey(type: string, id: string, settings: any) {
 export function presentDirectStream(stream: any) {
   const behaviorHints = { ...(stream.behaviorHints || {}) };
   const filename = String(behaviorHints.filename || "").toLowerCase();
+  const plex = stream?._autostreamSourceKind === "plex";
 
   // Stremio's protocol requires non-MP4 HTTP media (for example MKV) to be
   // marked notWebReady. The native apps then route it through their streaming
@@ -71,14 +81,24 @@ export function presentDirectStream(stream: any) {
     ...Object.fromEntries(
       Object.entries(stream).filter(([key]) => !key.startsWith("_autostream"))
     ),
-    name: "AutoStream",
-    title: "🍿 HTTP",
+    name: plex ? "AutoStream · Plex" : "AutoStream",
+    title: plex ? "🍿 Plex" : "🍿 HTTP",
     behaviorHints
   };
 }
 
 export function isStremioWebReadyDirect(stream: any) {
   return presentDirectStream(stream).behaviorHints.notWebReady !== true;
+}
+
+export function plexDirectCandidates(streams: any[]) {
+  return deduplicateStreams(
+    streams.filter(
+      (candidate) =>
+        candidate?._autostreamSourceKind === "plex" &&
+        typeof candidate.url === "string"
+    )
+  );
 }
 
 function presentTorrentStream(stream: any) {
@@ -104,6 +124,10 @@ export async function getStreams(
   const requestStartedAt = Date.now();
   const responseDeadlineMs = 9_800;
   const settings = settingsOverride || getSettings();
+  // Start this small network check alongside source discovery. When the
+  // torrent race begins, we normally already know whether the verifier is
+  // available instead of adding another round trip to the user-facing wait.
+  const qbittorrentStatusPromise = getQBittorrentStatus();
   const selectionKey = verifiedSelectionKey(type, id, settings);
   if (!settingsOverride) {
     const cachedTorrent = verifiedTorrentWinners.get(selectionKey);
@@ -193,6 +217,37 @@ export async function getStreams(
     return [];
   }
 
+  // Plex media is already local/hosted and requires no torrent startup. Test
+  // it first and return it immediately when real media bytes arrive. Torrent
+  // probing only begins when Plex has no exact, playable result.
+  const plexCandidates = plexDirectCandidates(streams);
+  if (plexCandidates.length) {
+    const plexVerification = await selectFirstPlayableHttp(
+      plexCandidates,
+      6,
+      5_000
+    );
+    for (const attempt of plexVerification.attempts) {
+      console.log(
+        `Plex candidate ${attempt.success ? "accepted" : "rejected"}:`,
+        attempt.reason
+      );
+    }
+    if (plexVerification.stream) {
+      if (!settingsOverride) {
+        verifiedDirectWinners.set(selectionKey, {
+          stream: plexVerification.stream,
+          expiresAt: Date.now() + verifiedDirectWinnerTtlMs
+        });
+      }
+      console.log(
+        "Verified Plex selection:",
+        `(${Date.now() - requestStartedAt}ms total)`
+      );
+      return [presentDirectStream(plexVerification.stream)];
+    }
+  }
+
   const ranked = rankStreams(streams, settings);
 
   if (!ranked.length) {
@@ -203,8 +258,16 @@ export async function getStreams(
   // deserve a real media probe instead of being discarded by torrent quality
   // filters before the HTTP/torrent race begins.
   const directCandidates = deduplicateStreams([
-    ...ranked.filter((candidate) => typeof candidate.url === "string"),
-    ...streams.filter((candidate) => typeof candidate.url === "string")
+    ...ranked.filter(
+      (candidate) =>
+        typeof candidate.url === "string" &&
+        candidate._autostreamSourceKind !== "plex"
+    ),
+    ...streams.filter(
+      (candidate) =>
+        typeof candidate.url === "string" &&
+        candidate._autostreamSourceKind !== "plex"
+    )
   ]);
   const torrentCandidates = ranked.filter(
     (candidate) =>
@@ -243,7 +306,7 @@ export async function getStreams(
     );
     const inFlightKey = activeVerificationKey(type, id, settings);
     {
-      const qbittorrent = await getQBittorrentStatus();
+      const qbittorrent = await qbittorrentStatusPromise;
       if (qbittorrent.online && settings.fallback?.enabled !== false) {
         let verification = verificationInFlight.get(inFlightKey);
         if (!verification) {
@@ -365,7 +428,7 @@ export async function getStreams(
     return [];
   }
 
-  const qbittorrent = await getQBittorrentStatus();
+  const qbittorrent = await qbittorrentStatusPromise;
 
   if (
     publicBaseUrl &&

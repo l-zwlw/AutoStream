@@ -1,14 +1,10 @@
 import fs from "fs";
 import path from "path";
+import { dataRoot, ensureDataRoot, writeJsonAtomic } from "./storage";
 
-const dataRoot = process.env.AUTOSTREAM_DATA_PATH || path.join(process.cwd(), "data");
 const settingsFile = path.join(dataRoot, "settings.json");
 const legacyProfilesFile = path.join(dataRoot, "profiles.json");
 const archivedProfilesFile = path.join(dataRoot, "profiles.legacy.json");
-
-function ensureDataRoot() {
-  fs.mkdirSync(dataRoot, { recursive: true });
-}
 
 const defaultSettings = {
   playbackMethod: "torrent",
@@ -208,7 +204,7 @@ function migrateLegacyProfileSettings() {
       jackett: { ...(current.jackett || {}), ...(legacy.jackett || {}) }
     });
 
-    fs.writeFileSync(settingsFile, JSON.stringify(migrated, null, 2));
+    writeJsonAtomic(settingsFile, migrated, 0o600);
     const archivePath = fs.existsSync(archivedProfilesFile)
       ? path.join(dataRoot, `profiles.legacy-${Date.now()}.json`)
       : archivedProfilesFile;
@@ -230,15 +226,12 @@ export function getSettings() {
 
   const normalized = normalizeSettings(settings);
   if (settings.fallback?.verificationVersion !== 13) {
-    fs.writeFileSync(settingsFile, JSON.stringify(normalized, null, 2));
+    writeJsonAtomic(settingsFile, normalized, 0o600);
   }
   return normalized;
 }
 
 export function saveSettings(settings: any) {
   ensureDataRoot();
-  fs.writeFileSync(
-    settingsFile,
-    JSON.stringify(normalizeSettings(settings), null, 2)
-  );
+  writeJsonAtomic(settingsFile, normalizeSettings(settings), 0o600);
 }

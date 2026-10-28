@@ -1,7 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
+import { dataRoot, writeJsonAtomic } from "./storage";
 
-const healthFile = path.join(process.cwd(), "data/health.json");
+const healthFile = path.join(dataRoot, "health.json");
 
 export type AddonHealth = {
   addonId: string;
@@ -33,7 +34,7 @@ function readData(): ReliabilityData {
 }
 
 function writeData(data: ReliabilityData) {
-  fs.writeFileSync(healthFile, JSON.stringify(data, null, 2));
+  writeJsonAtomic(healthFile, data);
 }
 
 function defaultAddon(addonId: string): AddonHealth {

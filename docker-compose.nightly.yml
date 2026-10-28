@@ -11,8 +11,11 @@ services:
       STREAM_ENGINE_URL: "http://stream-engine:7010"
       ENABLE_EXPERIMENTAL_HTTP: "true"
       STREMIO_WEB_URL: "http://stremio-web:8080"
+      AUTOSTREAM_DATA_PATH: "/app/data"
+      AUTOSTREAM_LEGACY_DATA_PATH: "/legacy-data"
     volumes:
-      - ./data:/app/data
+      - autostream-data:/app/data
+      - ./data:/legacy-data:ro
       - ./downloads:/downloads
     depends_on:
       - qbittorrent
@@ -65,3 +68,7 @@ services:
     restart: unless-stopped
     labels:
       io.autostream.component: "stremio-web-player"
+
+volumes:
+  autostream-data:
+    name: "${AUTOSTREAM_DATA_VOLUME:-autostream-data}"

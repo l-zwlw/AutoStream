@@ -1,7 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
+import { dataRoot, writeJsonAtomic } from "./storage";
 
-const file = path.join(process.cwd(), "data/cache.json");
+const file = path.join(dataRoot, "cache.json");
 
 export function getCacheSettings() {
   try {
@@ -20,6 +21,6 @@ export function saveCacheSettings(settings: any) {
     maximumGb: Math.min(1000, Math.max(1, Number(settings?.maximumGb) || 50)),
     maximumConcurrentTranscodes: Math.min(8, Math.max(1, Number(settings?.maximumConcurrentTranscodes) || 2))
   };
-  fs.writeFileSync(file, JSON.stringify(value, null, 2));
+  writeJsonAtomic(file, value);
   return value;
 }

@@ -48,12 +48,16 @@ import {
 } from "./services/qbittorrent";
 import { getJackettStatus } from "./providers/jackett";
 import { getStremioWebStatus } from "./services/stremioWeb";
+import { migrateLegacyData } from "./services/storage";
+import { isPlexAddon } from "./services/addons";
 
 const app = express();
 const experimentalHttpEnabled =
   process.env.ENABLE_EXPERIMENTAL_HTTP === "true";
 
-// Run one-time data migrations before any manifest, API or dashboard request.
+// Copy a previous bind-mounted configuration into the persistent Docker volume
+// once, then run schema migrations before serving requests.
+migrateLegacyData();
 getSettings();
 
 app.set("trust proxy", true);
@@ -219,6 +223,7 @@ app.get("/p/:profileId/stream/:type/:id.json", async (req, res) => {
 app.get("/api/status", async (req, res) => {
   const settings = getSettings();
   const qbittorrent = await getQBittorrentStatus();
+  const plexAddon = getAddons().find(isPlexAddon);
   const debridMode = Boolean(
     settings.debrid?.enabled &&
     settings.debrid?.provider &&
@@ -242,6 +247,11 @@ app.get("/api/status", async (req, res) => {
     streamEngine: await getStreamEngineStatus(),
     browserPlayer: await getStremioWebStatus(),
     jackett: await getJackettStatus(settings.jackett),
+    plex: {
+      configured: Boolean(plexAddon),
+      enabled: Boolean(plexAddon && plexAddon.enabled !== false),
+      name: plexAddon?.name || "Plex"
+    },
     fallbackEngine: qbittorrent
   });
 });
@@ -515,8 +525,46 @@ app.patch("/api/settings", (req, res) => {
   });
 });
 
+function publicAddon(addon: any) {
+  if (!isPlexAddon(addon)) return addon;
+  return {
+    ...addon,
+    url: "",
+    manifestUrl: "",
+    configured: true,
+    sourceKind: "plex"
+  };
+}
+
 app.get("/api/addons", (req, res) => {
-  res.json(getAddons());
+  res.json(getAddons().map(publicAddon));
+});
+
+app.put("/api/plex", async (req, res) => {
+  try {
+    const addon = await createAddon(String(req.body?.url || ""));
+    if (!isPlexAddon(addon)) {
+      return res.status(400).json({
+        error: "This is not a configured Plexio manifest URL"
+      });
+    }
+    addon.sourceKind = "plex";
+    const addons = getAddons().filter((item: any) => !isPlexAddon(item));
+    addons.unshift(addon);
+    saveAddons(addons);
+    res.json({ success: true, addon: publicAddon(addon) });
+  } catch (error) {
+    res.status(400).json({
+      error: error instanceof Error ? error.message : "Could not connect Plex"
+    });
+  }
+});
+
+app.delete("/api/plex", (req, res) => {
+  const addons = getAddons();
+  const filtered = addons.filter((addon: any) => !isPlexAddon(addon));
+  saveAddons(filtered);
+  res.json({ success: true, removed: addons.length - filtered.length });
 });
 
 app.post("/api/addons", async (req, res) => {
@@ -542,7 +590,7 @@ app.post("/api/addons", async (req, res) => {
 
     res.json({
       success: true,
-      addon
+      addon: publicAddon(addon)
     });
   } catch (error: any) {
     res.status(400).json({
@@ -572,7 +620,7 @@ app.patch("/api/addons/:index", (req, res) => {
 
   res.json({
     success: true,
-    addon: addons[index]
+    addon: publicAddon(addons[index])
   });
 });
 
